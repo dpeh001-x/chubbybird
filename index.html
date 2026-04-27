@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chubby Bird Bird</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <canvas id="game" aria-label="Chubby Bird Bird game canvas"></canvas>
+
+      <section class="hud" aria-live="polite">
+        <div>
+          <span class="label">Score</span>
+          <strong id="score">0</strong>
+        </div>
+        <div>
+          <span class="label">Best</span>
+          <strong id="best">0</strong>
+        </div>
+        <div>
+          <span class="label">Pace</span>
+          <strong id="pace">1.0x</strong>
+        </div>
+      </section>
+
+      <section id="overlay" class="overlay">
+        <h1>Chubby Bird Bird</h1>
+        <p>Swipe up to climb, swipe right to surge forward. Hold to charge, then release for a burst. Survive the speed climb.</p>
+        <button id="startButton" type="button">Start Run</button>
+      </section>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
