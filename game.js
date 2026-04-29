@@ -1,13 +1,15 @@
 const canvas = document.querySelector("#game");
 const shell = document.querySelector(".game-shell");
-const ctx = canvas.getContext("2d");
+const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true }) || canvas.getContext("2d");
 const scoreEl = document.querySelector("#score");
 const bestEl = document.querySelector("#best");
 const paceEl = document.querySelector("#pace");
 const overlay = document.querySelector("#overlay");
 const startButton = document.querySelector("#startButton");
 
-const DPR_LIMIT = 2;
+const DPR_LIMIT = 1.5;
+const MAX_PARTICLES = 120;
+const MAX_DASH_EFFECTS = 90;
 const bestKey = "rushwing-best";
 const BACKGROUND_VIDEO_RATE = 0.8;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
@@ -31,6 +33,15 @@ shell.prepend(backgroundVideo);
 const audio = {
   ctx: null,
   master: null,
+};
+const floorArt = {
+  topTile: document.createElement("canvas"),
+  bodyTile: document.createElement("canvas"),
+  dpr: 0,
+  topWidth: 168,
+  bodyWidth: 222,
+  topHeight: 42,
+  bodyHeight: 48,
 };
 const characterImage = new Image();
 characterImage.src = "assets/chubby-bird-sprites.png";
@@ -87,6 +98,8 @@ function resize() {
   canvas.style.width = `${state.width}px`;
   canvas.style.height = `${state.height}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   state.bird.x = Math.max(92, state.width * 0.2);
 }
 
@@ -226,7 +239,9 @@ function spawnDashEffects(x, y, strength) {
 }
 
 function burst(x, y, count, color) {
-  for (let i = 0; i < count; i += 1) {
+  const available = Math.max(0, MAX_PARTICLES - state.particles.length);
+  const amount = Math.min(count, available);
+  for (let i = 0; i < amount; i += 1) {
     state.particles.push({
       x,
       y,
@@ -368,7 +383,7 @@ function update(dt) {
     bird.angle = Math.max(-0.5, bird.angle - state.dash * 0.35);
   }
   bird.wing += dt * (16 + paceSpeed / 80);
-  if (Math.random() < 0.9) {
+  if (state.particles.length < MAX_PARTICLES && Math.random() < 0.55) {
     state.particles.push({
       x: bird.x - 22,
       y: bird.y + 5 + Math.sin(bird.wing) * 4,
@@ -409,7 +424,7 @@ function update(dt) {
       }
     }
   }
-  state.gates = state.gates.filter((gate) => !gate.broken && gate.x > -gate.w - 20);
+  compactArray(state.gates, (gate) => !gate.broken && gate.x > -gate.w - 20);
 
   for (const feather of state.feathers) {
     feather.x -= paceSpeed * dt;
@@ -420,7 +435,7 @@ function update(dt) {
       collectFeather(feather);
     }
   }
-  state.feathers = state.feathers.filter((feather) => !feather.collected && feather.x > -40);
+  compactArray(state.feathers, (feather) => !feather.collected && feather.x > -40);
 
   for (const p of state.particles) {
     p.life -= dt;
@@ -428,7 +443,7 @@ function update(dt) {
     p.y += p.vy * dt;
     p.vy += 500 * dt;
   }
-  state.particles = state.particles.filter((p) => p.life > 0);
+  compactArray(state.particles, (p) => p.life > 0);
 
   for (const effect of state.dashEffects) {
     effect.age += dt;
@@ -441,9 +456,24 @@ function update(dt) {
       effect.vy += 480 * dt;
     }
   }
-  state.dashEffects = state.dashEffects.filter((effect) => effect.age < effect.life);
+  compactArray(state.dashEffects, (effect) => effect.age < effect.life);
+  if (state.dashEffects.length > MAX_DASH_EFFECTS) {
+    state.dashEffects.splice(0, state.dashEffects.length - MAX_DASH_EFFECTS);
+  }
 
   if (bird.y - bird.radius < 0 || bird.y + bird.radius > getFloorSurfaceY()) crash();
+}
+
+function compactArray(items, keep) {
+  let write = 0;
+  for (let read = 0; read < items.length; read += 1) {
+    const item = items[read];
+    if (keep(item)) {
+      items[write] = item;
+      write += 1;
+    }
+  }
+  items.length = write;
 }
 
 function draw() {
@@ -662,10 +692,12 @@ function drawRidges() {
 
 function drawSpeedLines() {
   const pace = Math.max(0, (state.speed + state.dashBoost - 430) / 380) + state.dash * 0.65;
+  const now = performance.now();
+  const lineCount = state.running ? 18 : 10;
   ctx.lineCap = "round";
-  for (let i = 0; i < 26; i += 1) {
-    const y = ((i * 83 + performance.now() * (0.24 + pace * 0.18)) % state.height);
-    const x = (i * 137 + performance.now() * -(0.46 + pace * 0.36)) % (state.width + 220);
+  for (let i = 0; i < lineCount; i += 1) {
+    const y = (i * 83 + now * (0.24 + pace * 0.18)) % state.height;
+    const x = (i * 137 + now * -(0.46 + pace * 0.36)) % (state.width + 220);
     const len = 42 + pace * 90 + (i % 4) * 10;
     ctx.strokeStyle = i % 3 === 0 ? "rgba(247, 232, 95, 0.22)" : "rgba(64, 225, 190, 0.18)";
     ctx.lineWidth = 1.2 + pace * 1.8;
@@ -1050,10 +1082,11 @@ function drawDashEffects() {
 }
 
 function drawForeground() {
+  ensureFloorArt();
   const groundY = getFloorSurfaceY() + 8;
   const time = performance.now();
-  const topOffset = (time * -0.18) % 42;
-  const tileOffset = (time * -0.34) % 74;
+  const topOffset = positiveModulo(time * 0.18, floorArt.topWidth);
+  const tileOffset = positiveModulo(time * 0.34, floorArt.bodyWidth);
 
   ctx.save();
   ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
@@ -1078,40 +1111,8 @@ function drawForeground() {
   ctx.fillStyle = "#12392f";
   ctx.fillRect(0, groundY + 32, state.width, state.height - groundY);
 
-  for (let x = topOffset - 42; x < state.width + 42; x += 42) {
-    ctx.fillStyle = "#49e09e";
-    ctx.beginPath();
-    ctx.moveTo(x, groundY - 9);
-    ctx.quadraticCurveTo(x + 10, groundY - 28, x + 20, groundY - 9);
-    ctx.quadraticCurveTo(x + 30, groundY + 1, x + 42, groundY - 9);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = "#071013";
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    ctx.fillStyle = "rgba(255, 246, 155, 0.62)";
-    ctx.beginPath();
-    ctx.ellipse(x + 18, groundY - 11, 6, 2.4, -0.2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.fillStyle = "#0f2e28";
-  ctx.strokeStyle = "rgba(7, 16, 19, 0.72)";
-  ctx.lineWidth = 2;
-  for (let x = tileOffset - 74; x < state.width + 80; x += 74) {
-    roundedRect(x, groundY + 20, 50, 14, 5, "#2b6d55");
-    ctx.strokeRect(x + 3, groundY + 22, 44, 9);
-    roundedRect(x + 30, groundY + 40, 38, 10, 5, "#16483c");
-  }
-
-  ctx.lineCap = "round";
-  for (let x = tileOffset - 60; x < state.width + 90; x += 92) {
-    drawGroundFeather(x + 24, groundY + 18, 0.42, -0.45);
-    drawGroundPebble(x + 64, groundY + 29, 7, "#f7e85f");
-    drawGroundPebble(x + 78, groundY + 37, 4, "#87ffe2");
-  }
-  ctx.lineCap = "butt";
+  drawRepeatingTile(floorArt.topTile, floorArt.topWidth, floorArt.topHeight, -topOffset, groundY - 30);
+  drawRepeatingTile(floorArt.bodyTile, floorArt.bodyWidth, floorArt.bodyHeight, -tileOffset, groundY + 16);
   ctx.restore();
 }
 
@@ -1119,47 +1120,131 @@ function getFloorSurfaceY() {
   return state.height - 52;
 }
 
-function drawGroundPebble(x, y, radius, color) {
-  ctx.fillStyle = "#071013";
-  ctx.beginPath();
-  ctx.ellipse(x + 2, y + 2, radius + 1, radius * 0.58 + 1, -0.08, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.ellipse(x, y, radius, radius * 0.58, -0.08, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "rgba(255, 255, 255, 0.42)";
-  ctx.beginPath();
-  ctx.ellipse(x - radius * 0.24, y - radius * 0.18, radius * 0.28, radius * 0.12, -0.08, 0, Math.PI * 2);
-  ctx.fill();
+function ensureFloorArt() {
+  const dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
+  if (floorArt.dpr === dpr) return;
+  floorArt.dpr = dpr;
+  buildFloorTile(floorArt.topTile, floorArt.topWidth, floorArt.topHeight, dpr, drawFloorTopTile);
+  buildFloorTile(floorArt.bodyTile, floorArt.bodyWidth, floorArt.bodyHeight, dpr, drawFloorBodyTile);
 }
 
-function drawGroundFeather(x, y, scale, angle) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(angle);
-  ctx.scale(scale, scale);
-  ctx.fillStyle = "#071013";
-  ctx.beginPath();
-  ctx.moveTo(-5, 18);
-  ctx.bezierCurveTo(17, 8, 20, -13, 1, -21);
-  ctx.bezierCurveTo(-16, -11, -16, 7, -5, 18);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "#fff69b";
-  ctx.beginPath();
-  ctx.moveTo(-4, 14);
-  ctx.bezierCurveTo(10, 4, 13, -9, 2, -16);
-  ctx.bezierCurveTo(-9, -8, -10, 5, -4, 14);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = "#b9702c";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(-4, 14);
-  ctx.quadraticCurveTo(-1, 0, 3, -15);
-  ctx.stroke();
-  ctx.restore();
+function buildFloorTile(tile, width, height, dpr, drawTile) {
+  tile.width = Math.ceil(width * dpr);
+  tile.height = Math.ceil(height * dpr);
+  const tileCtx = tile.getContext("2d");
+  tileCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  tileCtx.clearRect(0, 0, width, height);
+  tileCtx.imageSmoothingEnabled = true;
+  tileCtx.imageSmoothingQuality = "high";
+  drawTile(tileCtx);
+}
+
+function drawFloorTopTile(tileCtx) {
+  for (let x = -42; x < floorArt.topWidth + 48; x += 42) {
+    tileCtx.fillStyle = "#49e09e";
+    tileCtx.beginPath();
+    tileCtx.moveTo(x, 21);
+    tileCtx.quadraticCurveTo(x + 10, 2, x + 20, 21);
+    tileCtx.quadraticCurveTo(x + 30, 31, x + 42, 21);
+    tileCtx.closePath();
+    tileCtx.fill();
+    tileCtx.strokeStyle = "#071013";
+    tileCtx.lineWidth = 3;
+    tileCtx.stroke();
+
+    tileCtx.fillStyle = "rgba(255, 246, 155, 0.62)";
+    tileCtx.beginPath();
+    tileCtx.ellipse(x + 18, 19, 6, 2.4, -0.2, 0, Math.PI * 2);
+    tileCtx.fill();
+  }
+}
+
+function drawFloorBodyTile(tileCtx) {
+  roundedRectTo(tileCtx, 0, 4, 50, 14, 5, "#2b6d55");
+  tileCtx.strokeStyle = "rgba(7, 16, 19, 0.72)";
+  tileCtx.lineWidth = 2;
+  tileCtx.strokeRect(3, 6, 44, 9);
+  roundedRectTo(tileCtx, 30, 24, 38, 10, 5, "#16483c");
+
+  roundedRectTo(tileCtx, 102, 1, 46, 12, 5, "#2b6d55");
+  tileCtx.strokeRect(105, 3, 40, 8);
+  roundedRectTo(tileCtx, 148, 24, 44, 11, 5, "#16483c");
+
+  tileCtx.lineCap = "round";
+  drawGroundFeather(24, 2, 0.42, -0.45, tileCtx);
+  drawGroundPebble(64, 13, 7, "#f7e85f", tileCtx);
+  drawGroundPebble(78, 21, 4, "#87ffe2", tileCtx);
+  drawGroundFeather(174, 10, 0.34, -0.2, tileCtx);
+  drawGroundPebble(194, 17, 5, "#fff69b", tileCtx);
+  tileCtx.lineCap = "butt";
+}
+
+function drawRepeatingTile(tile, width, height, offsetX, y) {
+  for (let x = offsetX - width; x < state.width + width; x += width) {
+    ctx.drawImage(tile, x, y, width, height);
+  }
+}
+
+function positiveModulo(value, size) {
+  return ((value % size) + size) % size;
+}
+
+function roundedRectTo(targetCtx, x, y, w, h, r, fillStyle) {
+  targetCtx.fillStyle = fillStyle;
+  targetCtx.beginPath();
+  targetCtx.moveTo(x + r, y);
+  targetCtx.lineTo(x + w - r, y);
+  targetCtx.quadraticCurveTo(x + w, y, x + w, y + r);
+  targetCtx.lineTo(x + w, y + h - r);
+  targetCtx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  targetCtx.lineTo(x + r, y + h);
+  targetCtx.quadraticCurveTo(x, y + h, x, y + h - r);
+  targetCtx.lineTo(x, y + r);
+  targetCtx.quadraticCurveTo(x, y, x + r, y);
+  targetCtx.fill();
+}
+
+function drawGroundPebble(x, y, radius, color, targetCtx = ctx) {
+  targetCtx.fillStyle = "#071013";
+  targetCtx.beginPath();
+  targetCtx.ellipse(x + 2, y + 2, radius + 1, radius * 0.58 + 1, -0.08, 0, Math.PI * 2);
+  targetCtx.fill();
+  targetCtx.fillStyle = color;
+  targetCtx.beginPath();
+  targetCtx.ellipse(x, y, radius, radius * 0.58, -0.08, 0, Math.PI * 2);
+  targetCtx.fill();
+  targetCtx.fillStyle = "rgba(255, 255, 255, 0.42)";
+  targetCtx.beginPath();
+  targetCtx.ellipse(x - radius * 0.24, y - radius * 0.18, radius * 0.28, radius * 0.12, -0.08, 0, Math.PI * 2);
+  targetCtx.fill();
+}
+
+function drawGroundFeather(x, y, scale, angle, targetCtx = ctx) {
+  targetCtx.save();
+  targetCtx.translate(x, y);
+  targetCtx.rotate(angle);
+  targetCtx.scale(scale, scale);
+  targetCtx.fillStyle = "#071013";
+  targetCtx.beginPath();
+  targetCtx.moveTo(-5, 18);
+  targetCtx.bezierCurveTo(17, 8, 20, -13, 1, -21);
+  targetCtx.bezierCurveTo(-16, -11, -16, 7, -5, 18);
+  targetCtx.closePath();
+  targetCtx.fill();
+  targetCtx.fillStyle = "#fff69b";
+  targetCtx.beginPath();
+  targetCtx.moveTo(-4, 14);
+  targetCtx.bezierCurveTo(10, 4, 13, -9, 2, -16);
+  targetCtx.bezierCurveTo(-9, -8, -10, 5, -4, 14);
+  targetCtx.closePath();
+  targetCtx.fill();
+  targetCtx.strokeStyle = "#b9702c";
+  targetCtx.lineWidth = 2;
+  targetCtx.beginPath();
+  targetCtx.moveTo(-4, 14);
+  targetCtx.quadraticCurveTo(-1, 0, 3, -15);
+  targetCtx.stroke();
+  targetCtx.restore();
 }
 
 function roundedRect(x, y, w, h, r, fillStyle) {
