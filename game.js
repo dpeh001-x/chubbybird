@@ -65,13 +65,10 @@ const state = {
   dashBoost: 0,
   spawnTimer: 0,
   shake: 0,
-  shield: 0,
-  shieldFlash: 0,
   pointerStart: null,
   lastRightTap: 0,
   particles: [],
   dashEffects: [],
-  feathers: [],
   gates: [],
   clouds: [],
   stars: [],
@@ -115,11 +112,8 @@ function resetGame() {
   state.dashBoost = 0;
   state.spawnTimer = 0.85;
   state.shake = 0;
-  state.shield = 0;
-  state.shieldFlash = 0;
   state.lastRightTap = 0;
   state.gates = [];
-  state.feathers = [];
   state.particles = [];
   state.dashEffects = [];
   state.bird.x = Math.max(92, state.width * 0.2);
@@ -149,19 +143,8 @@ function spawnGate() {
     gapBottom: Math.min(state.height - 56, center + gap * 0.5),
     scored: false,
     pulse: Math.random() * Math.PI,
-    broken: false,
   };
   state.gates.push(gate);
-
-  if (state.score > 0 && Math.random() < 0.42) {
-    state.feathers.push({
-      x: gate.x + gate.w * 0.5,
-      y: gate.gapTop + (gate.gapBottom - gate.gapTop) * (0.34 + Math.random() * 0.32),
-      r: 17,
-      pulse: Math.random() * Math.PI * 2,
-      collected: false,
-    });
-  }
 }
 
 function flap(power = 1, horizontal = 0) {
@@ -305,57 +288,10 @@ function crash() {
   localStorage.setItem(bestKey, state.best);
   overlay.querySelector("h1").textContent = "Run Over";
   overlay.querySelector("p").textContent =
-    `Score ${state.score}. Tap or Space to flap. Swipe right or double-tap Right to dash. Grab golden feathers for one crash save.`;
+    `Score ${state.score}. Tap or Space to flap. Swipe right or double-tap Right to dash. Thread the gaps and keep the pace.`;
   startButton.textContent = "Retry";
   overlay.classList.remove("hidden");
   updateHud();
-}
-
-function collectFeather(feather) {
-  feather.collected = true;
-  state.shield = 1;
-  state.shieldFlash = 1;
-  state.speed = Math.max(420, state.speed - 28);
-  burst(feather.x, feather.y, 24, "#f7e85f");
-  burst(feather.x - 12, feather.y + 4, 12, "#ffffff");
-  playFeatherSound();
-}
-
-function useShield(gate) {
-  state.shield = 0;
-  state.shieldFlash = 1;
-  state.shake = Math.max(state.shake, 18);
-  state.dash = Math.max(state.dash, 0.9);
-  state.dashBoost = Math.max(state.dashBoost, 300);
-  state.bird.invuln = Math.max(state.bird.invuln, 0.7);
-  gate.broken = true;
-  if (!gate.scored) {
-    gate.scored = true;
-    state.score += 1;
-  }
-  spawnGateBreak(gate);
-  burst(state.bird.x - 8, state.bird.y, 34, "#f7e85f");
-  burst(state.bird.x - 20, state.bird.y + 10, 18, "#87ffe2");
-  playShieldSound();
-  updateHud();
-}
-
-function spawnGateBreak(gate) {
-  const pieces = 18;
-  for (let i = 0; i < pieces; i += 1) {
-    const topHalf = i % 2 === 0;
-    state.dashEffects.push({
-      type: "shard",
-      x: gate.x + gate.w * (0.18 + Math.random() * 0.64),
-      y: topHalf ? gate.gapTop - 30 - Math.random() * 70 : gate.gapBottom + 30 + Math.random() * 70,
-      vx: -260 - Math.random() * 420,
-      vy: -220 + Math.random() * 440,
-      age: 0,
-      life: 0.36 + Math.random() * 0.2,
-      size: 7 + Math.random() * 13,
-      color: i % 3 === 0 ? "#f7e85f" : "#49e09e",
-    });
-  }
 }
 
 function step(now) {
@@ -374,7 +310,6 @@ function update(dt) {
   const paceSpeed = state.speed + state.dashBoost;
   state.spawnTimer -= dt;
   state.shake = Math.max(0, state.shake - dt * 50);
-  state.shieldFlash = Math.max(0, state.shieldFlash - dt * 2.2);
   bird.invuln = Math.max(0, bird.invuln - dt);
   bird.vy += (1240 + paceSpeed * 0.28) * dt;
   bird.y += bird.vy * dt;
@@ -417,25 +352,10 @@ function update(dt) {
     const withinX = bird.x + bird.radius > sweptLeft && bird.x - bird.radius < sweptRight;
     const outsideGap = bird.y - bird.radius < gate.gapTop || bird.y + bird.radius > gate.gapBottom;
     if (withinX && outsideGap) {
-      if (state.shield > 0) {
-        useShield(gate);
-      } else {
-        crash();
-      }
+      crash();
     }
   }
-  compactArray(state.gates, (gate) => !gate.broken && gate.x > -gate.w - 20);
-
-  for (const feather of state.feathers) {
-    feather.x -= paceSpeed * dt;
-    feather.pulse += dt * 7;
-    const dx = feather.x - bird.x;
-    const dy = feather.y - bird.y;
-    if (!feather.collected && Math.hypot(dx, dy) < bird.radius + feather.r) {
-      collectFeather(feather);
-    }
-  }
-  compactArray(state.feathers, (feather) => !feather.collected && feather.x > -40);
+  compactArray(state.gates, (gate) => gate.x > -gate.w - 20);
 
   for (const p of state.particles) {
     p.life -= dt;
@@ -487,7 +407,6 @@ function draw() {
   drawDashFlash();
   drawSpeedLines();
   drawGates();
-  drawFeathers();
   drawDashEffects();
   drawParticles();
   drawBird();
@@ -651,18 +570,6 @@ function playScoreSound() {
   playTone("square", 920, 1220, 0.08, 0.04, 0.07);
 }
 
-function playFeatherSound() {
-  playTone("triangle", 760, 1180, 0.07, 0.04);
-  playTone("square", 1180, 1540, 0.08, 0.032, 0.06);
-  playTone("triangle", 1540, 1880, 0.08, 0.024, 0.12);
-}
-
-function playShieldSound() {
-  playTone("square", 520, 180, 0.18, 0.07);
-  playTone("triangle", 280, 740, 0.16, 0.045, 0.03);
-  playNoise(0.11, 0.05);
-}
-
 function playCrashSound() {
   playTone("sawtooth", 170, 45, 0.28, 0.075);
   playNoise(0.22, 0.08);
@@ -712,18 +619,14 @@ function drawGates() {
   for (const gate of state.gates) {
     const glow = 0.5 + Math.sin(gate.pulse) * 0.5;
     ctx.save();
-    ctx.shadowColor = `rgba(64, 225, 190, ${0.18 + glow * 0.16})`;
-    ctx.shadowBlur = 8;
     drawPillarSegment(gate, true, glow);
     drawPillarSegment(gate, false, glow);
-    ctx.shadowBlur = 0;
     drawGapEdgeSpark(gate, glow);
     ctx.restore();
   }
 }
 
 function drawPillarSegment(gate, top, glow) {
-  const depth = 15;
   const capH = 30;
   const bodyX = gate.x;
   const bodyW = gate.w;
@@ -733,21 +636,12 @@ function drawPillarSegment(gate, top, glow) {
   const bodyH = top ? gate.gapTop - capH + 27 : state.height - gate.gapBottom + 42;
   const capY = top ? gate.gapTop - capH : gate.gapBottom;
 
-  drawPillarBody(bodyX, bodyY, bodyW, Math.max(22, bodyH), depth, top, glow);
-  drawPillarCap(capX, capY, capW, capH, depth, top, glow);
+  drawPillarBody(bodyX, bodyY, bodyW, Math.max(22, bodyH), top);
+  drawPillarCap(capX, capY, capW, capH, top, glow);
 }
 
-function drawPillarBody(x, y, w, h, depth, top, glow) {
+function drawPillarBody(x, y, w, h, top) {
   const ink = "#071013";
-
-  ctx.fillStyle = "#145a4d";
-  ctx.beginPath();
-  ctx.moveTo(x + w, y + depth);
-  ctx.lineTo(x + w + depth, y);
-  ctx.lineTo(x + w + depth, y + h);
-  ctx.lineTo(x + w, y + h + depth);
-  ctx.closePath();
-  ctx.fill();
 
   const front = ctx.createLinearGradient(x, y, x + w, y);
   front.addColorStop(0, "#7fe7bb");
@@ -768,13 +662,6 @@ function drawPillarBody(x, y, w, h, depth, top, glow) {
   ctx.strokeStyle = ink;
   ctx.lineWidth = 4;
   roundedRectStroke(x, y, w, h, 8);
-  ctx.beginPath();
-  ctx.moveTo(x + w, y + depth);
-  ctx.lineTo(x + w + depth, y);
-  ctx.lineTo(x + w + depth, y + h);
-  ctx.lineTo(x + w, y + h + depth);
-  ctx.closePath();
-  ctx.stroke();
 
   ctx.strokeStyle = "rgba(249, 255, 207, 0.24)";
   ctx.lineWidth = 2;
@@ -805,17 +692,8 @@ function drawPillarBands(x, y, w, h, top) {
   }
 }
 
-function drawPillarCap(x, y, w, h, depth, top, glow) {
+function drawPillarCap(x, y, w, h, top, glow) {
   const ink = "#071013";
-
-  ctx.fillStyle = "#176b59";
-  ctx.beginPath();
-  ctx.moveTo(x + w, y + depth);
-  ctx.lineTo(x + w + depth, y);
-  ctx.lineTo(x + w + depth, y + h);
-  ctx.lineTo(x + w, y + h + depth);
-  ctx.closePath();
-  ctx.fill();
 
   const cap = ctx.createLinearGradient(x, y, x + w, y + h);
   cap.addColorStop(0, "#9af0c5");
@@ -832,13 +710,6 @@ function drawPillarCap(x, y, w, h, depth, top, glow) {
   ctx.strokeStyle = ink;
   ctx.lineWidth = 4;
   roundedRectStroke(x, y, w, h, 8);
-  ctx.beginPath();
-  ctx.moveTo(x + w, y + depth);
-  ctx.lineTo(x + w + depth, y);
-  ctx.lineTo(x + w + depth, y + h);
-  ctx.lineTo(x + w, y + h + depth);
-  ctx.closePath();
-  ctx.stroke();
 
   const rimY = top ? y + h - 8 : y + 6;
   ctx.strokeStyle = `rgba(249, 255, 207, ${0.26 + glow * 0.24})`;
@@ -890,60 +761,6 @@ function drawGapEdgeSpark(gate, glow) {
   ctx.fill();
 }
 
-function drawFeathers() {
-  for (const feather of state.feathers) {
-    const bob = Math.sin(feather.pulse) * 5;
-    drawFeatherIcon(feather.x, feather.y + bob, 0.84 + Math.sin(feather.pulse * 1.4) * 0.05, feather.pulse);
-  }
-}
-
-function drawFeatherIcon(x, y, scale = 1, pulse = 0) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(-0.5 + Math.sin(pulse) * 0.08);
-  ctx.scale(scale, scale);
-  ctx.shadowColor = "rgba(247, 232, 95, 0.55)";
-  ctx.shadowBlur = 14;
-
-  ctx.fillStyle = "#071013";
-  ctx.beginPath();
-  ctx.moveTo(-5, 19);
-  ctx.bezierCurveTo(17, 8, 22, -15, 0, -23);
-  ctx.bezierCurveTo(-20, -13, -19, 8, -5, 19);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = "#f7e85f";
-  ctx.beginPath();
-  ctx.moveTo(-4, 15);
-  ctx.bezierCurveTo(11, 5, 16, -12, 1, -19);
-  ctx.bezierCurveTo(-13, -10, -14, 7, -4, 15);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = "#fff69b";
-  ctx.beginPath();
-  ctx.moveTo(0, 10);
-  ctx.bezierCurveTo(7, 1, 9, -8, 2, -14);
-  ctx.bezierCurveTo(-3, -7, -5, 4, 0, 10);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.strokeStyle = "#b9702c";
-  ctx.lineWidth = 2;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(-5, 17);
-  ctx.quadraticCurveTo(-1, 0, 3, -17);
-  ctx.moveTo(-2, 5);
-  ctx.lineTo(-9, 1);
-  ctx.moveTo(0, -2);
-  ctx.lineTo(8, -5);
-  ctx.stroke();
-  ctx.restore();
-}
-
 function drawBird() {
   const b = state.bird;
   ctx.save();
@@ -980,9 +797,6 @@ function drawBird() {
     ctx.globalAlpha = 1;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
-    if (state.shield > 0) {
-      drawFeatherIcon(drawW * 0.22, -drawH * 0.42, 0.48 + state.shieldFlash * 0.18, b.wing);
-    }
     ctx.restore();
     return;
   }
@@ -1112,9 +926,6 @@ function drawBird() {
   ctx.ellipse(-10, 36.8, 3, 1.4, -0.12, 0, Math.PI * 2);
   ctx.ellipse(8, 36.8, 3, 1.4, 0.12, 0, Math.PI * 2);
   ctx.fill();
-  if (state.shield > 0) {
-    drawFeatherIcon(22, -24, 0.54 + state.shieldFlash * 0.18, b.wing);
-  }
   ctx.restore();
 }
 
