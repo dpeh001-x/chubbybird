@@ -139,7 +139,7 @@ function flap(power = 1, horizontal = 0) {
 function dashForward(distance, held) {
   const bird = state.bird;
   const strength = Math.min(1, distance / 210);
-  state.speed += 28 + strength * 32 + held * 12;
+  state.speed += 6 + strength * 8 + held * 4;
   state.dashBoost = Math.max(state.dashBoost, 240 + strength * 300 + held * 110);
   state.dash = Math.min(1, state.dash + 0.9 + strength * 0.55);
   state.shake = Math.max(state.shake, 7 + strength * 8);
@@ -283,7 +283,7 @@ function update(dt) {
   const bird = state.bird;
   state.speed += dt * 9.5;
   state.dash = Math.max(0, state.dash - dt * 5.2);
-  state.dashBoost = Math.max(0, state.dashBoost - dt * 1450);
+  state.dashBoost = Math.max(0, state.dashBoost - dt * (2500 + state.dashBoost * 4.5));
   const paceSpeed = state.speed + state.dashBoost;
   state.spawnTimer -= dt;
   state.shake = Math.max(0, state.shake - dt * 50);
