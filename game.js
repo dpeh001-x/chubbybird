@@ -27,6 +27,7 @@ const state = {
   best: Number(localStorage.getItem(bestKey) || 0),
   speed: 430,
   dash: 0,
+  dashBoost: 0,
   spawnTimer: 0,
   shake: 0,
   charge: 0,
@@ -70,6 +71,7 @@ function resetGame() {
   state.score = 0;
   state.speed = 430;
   state.dash = 0;
+  state.dashBoost = 0;
   state.spawnTimer = 0.85;
   state.shake = 0;
   state.charge = 0;
@@ -107,7 +109,7 @@ function resetGame() {
 function updateHud() {
   scoreEl.textContent = state.score;
   bestEl.textContent = state.best;
-  paceEl.textContent = `${(state.speed / 430).toFixed(1)}x`;
+  paceEl.textContent = `${((state.speed + state.dashBoost) / 430).toFixed(1)}x`;
 }
 
 function spawnGate() {
@@ -137,8 +139,9 @@ function flap(power = 1, horizontal = 0) {
 function dashForward(distance, held) {
   const bird = state.bird;
   const strength = Math.min(1, distance / 210);
-  state.speed += 95 + strength * 120 + held * 48;
-  state.dash = Math.min(1, state.dash + 0.75 + strength * 0.45);
+  state.speed += 28 + strength * 32 + held * 12;
+  state.dashBoost = Math.max(state.dashBoost, 240 + strength * 300 + held * 110);
+  state.dash = Math.min(1, state.dash + 0.9 + strength * 0.55);
   state.shake = Math.max(state.shake, 7 + strength * 8);
   bird.vy = Math.min(bird.vy, -130) - 90 * strength;
   spawnDashEffects(bird.x - 6, bird.y, strength);
@@ -279,18 +282,20 @@ function step(now) {
 function update(dt) {
   const bird = state.bird;
   state.speed += dt * 9.5;
-  state.dash = Math.max(0, state.dash - dt * 2.4);
+  state.dash = Math.max(0, state.dash - dt * 5.2);
+  state.dashBoost = Math.max(0, state.dashBoost - dt * 1450);
+  const paceSpeed = state.speed + state.dashBoost;
   state.spawnTimer -= dt;
   state.shake = Math.max(0, state.shake - dt * 50);
   state.charge = state.pointerStart ? Math.min(1, (performance.now() - state.holdStart) / 620) : 0;
   bird.invuln = Math.max(0, bird.invuln - dt);
-  bird.vy += (1240 + state.speed * 0.28) * dt;
+  bird.vy += (1240 + paceSpeed * 0.28) * dt;
   bird.y += bird.vy * dt;
   bird.angle = Math.max(-0.75, Math.min(1.15, bird.vy / 620));
   if (state.dash > 0) {
     bird.angle = Math.max(-0.5, bird.angle - state.dash * 0.35);
   }
-  bird.wing += dt * (16 + state.speed / 80);
+  bird.wing += dt * (16 + paceSpeed / 80);
   if (Math.random() < 0.9) {
     state.particles.push({
       x: bird.x - 22,
@@ -318,7 +323,7 @@ function update(dt) {
   }
 
   for (const star of state.stars) {
-    star.x -= (state.speed * 0.02 + star.size * 4) * dt;
+    star.x -= (paceSpeed * 0.02 + star.size * 4) * dt;
     star.twinkle += dt * 2.8;
     if (star.x < -8) {
       star.x = state.width + Math.random() * 80;
@@ -328,7 +333,7 @@ function update(dt) {
 
   for (const gate of state.gates) {
     const previousX = gate.x;
-    gate.x -= state.speed * dt;
+    gate.x -= paceSpeed * dt;
     gate.pulse += dt * 5;
     if (!gate.scored && gate.x + gate.w < bird.x) {
       gate.scored = true;
@@ -453,7 +458,7 @@ function drawBackground() {
 function drawRidges() {
   for (let layer = 0; layer < state.ridges.length; layer += 1) {
     const points = state.ridges[layer];
-    const speed = state.speed * (0.055 + layer * 0.028);
+    const speed = (state.speed + state.dashBoost) * (0.055 + layer * 0.028);
     const baseY = state.height - 76 + layer * 22;
     ctx.fillStyle = layer === 0 ? "rgba(8, 34, 40, 0.66)" : "rgba(7, 23, 28, 0.88)";
     ctx.beginPath();
@@ -473,7 +478,7 @@ function drawRidges() {
 }
 
 function drawSpeedLines() {
-  const pace = Math.max(0, (state.speed - 430) / 380) + state.dash * 0.65;
+  const pace = Math.max(0, (state.speed + state.dashBoost - 430) / 380) + state.dash * 0.65;
   ctx.lineCap = "round";
   for (let i = 0; i < 26; i += 1) {
     const y = ((i * 83 + performance.now() * (0.24 + pace * 0.18)) % state.height);
@@ -525,7 +530,7 @@ function drawBird() {
   ctx.rotate(b.angle);
 
   if (characterImage.complete && characterImage.naturalWidth > 0) {
-    const speedBoost = Math.max(0, (state.speed - 430) / 430);
+    const speedBoost = Math.max(0, (state.speed + state.dashBoost - 430) / 430);
     const frameIndex =
       Math.floor((performance.now() * (1 + speedBoost * 0.35)) / characterSprite.frameMs) %
       characterSprite.frameCount;
