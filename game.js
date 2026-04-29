@@ -711,31 +711,183 @@ function drawSpeedLines() {
 function drawGates() {
   for (const gate of state.gates) {
     const glow = 0.5 + Math.sin(gate.pulse) * 0.5;
-    const cap = 20;
-    const side = 18;
-
-    ctx.shadowColor = `rgba(64, 225, 190, ${0.15 + glow * 0.22})`;
-    ctx.shadowBlur = 10;
-    drawCelBlock(gate.x, -18, gate.w, gate.gapTop + 18, side);
-    drawCelBlock(gate.x, gate.gapBottom, gate.w, state.height - gate.gapBottom + 18, side);
+    ctx.save();
+    ctx.shadowColor = `rgba(64, 225, 190, ${0.18 + glow * 0.16})`;
+    ctx.shadowBlur = 8;
+    drawPillarSegment(gate, true, glow);
+    drawPillarSegment(gate, false, glow);
     ctx.shadowBlur = 0;
-
-    drawCelBlock(gate.x - 10, gate.gapTop - cap, gate.w + 20, cap, 8, "#49e09e", "#1a7c63", "#10251f");
-    drawCelBlock(gate.x - 10, gate.gapBottom, gate.w + 20, cap, 8, "#49e09e", "#1a7c63", "#10251f");
-
-    ctx.fillStyle = `rgba(249, 255, 207, ${0.26 + glow * 0.28})`;
-    ctx.fillRect(gate.x + 12, 8, 7, Math.max(0, gate.gapTop - cap - 18));
-    ctx.fillRect(gate.x + 12, gate.gapBottom + cap + 8, 7, state.height - gate.gapBottom);
-
-    ctx.strokeStyle = "rgba(5, 16, 18, 0.48)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(gate.x + 10, gate.gapTop - 44);
-    ctx.lineTo(gate.x + gate.w - 10, gate.gapTop - 44);
-    ctx.moveTo(gate.x + 10, gate.gapBottom + 44);
-    ctx.lineTo(gate.x + gate.w - 10, gate.gapBottom + 44);
-    ctx.stroke();
+    drawGapEdgeSpark(gate, glow);
+    ctx.restore();
   }
+}
+
+function drawPillarSegment(gate, top, glow) {
+  const depth = 15;
+  const capH = 30;
+  const bodyX = gate.x;
+  const bodyW = gate.w;
+  const capX = gate.x - 13;
+  const capW = gate.w + 26;
+  const bodyY = top ? -24 : gate.gapBottom + capH - 3;
+  const bodyH = top ? gate.gapTop - capH + 27 : state.height - gate.gapBottom + 42;
+  const capY = top ? gate.gapTop - capH : gate.gapBottom;
+
+  drawPillarBody(bodyX, bodyY, bodyW, Math.max(22, bodyH), depth, top, glow);
+  drawPillarCap(capX, capY, capW, capH, depth, top, glow);
+}
+
+function drawPillarBody(x, y, w, h, depth, top, glow) {
+  const ink = "#071013";
+
+  ctx.fillStyle = "#145a4d";
+  ctx.beginPath();
+  ctx.moveTo(x + w, y + depth);
+  ctx.lineTo(x + w + depth, y);
+  ctx.lineTo(x + w + depth, y + h);
+  ctx.lineTo(x + w, y + h + depth);
+  ctx.closePath();
+  ctx.fill();
+
+  const front = ctx.createLinearGradient(x, y, x + w, y);
+  front.addColorStop(0, "#7fe7bb");
+  front.addColorStop(0.38, "#49d596");
+  front.addColorStop(0.72, "#31aa7d");
+  front.addColorStop(1, "#17715f");
+  roundedRect(x, y, w, h, 8, front);
+
+  ctx.fillStyle = "rgba(7, 16, 19, 0.16)";
+  ctx.fillRect(x + w - 16, y + 8, 10, Math.max(0, h - 16));
+  ctx.fillStyle = "rgba(249, 255, 207, 0.36)";
+  ctx.fillRect(x + 10, y + 10, 8, Math.max(0, h - 20));
+  ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+  ctx.fillRect(x + 22, y + 16, 3, Math.max(0, h - 32));
+
+  drawPillarBands(x, y, w, h, top);
+
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 4;
+  roundedRectStroke(x, y, w, h, 8);
+  ctx.beginPath();
+  ctx.moveTo(x + w, y + depth);
+  ctx.lineTo(x + w + depth, y);
+  ctx.lineTo(x + w + depth, y + h);
+  ctx.lineTo(x + w, y + h + depth);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(249, 255, 207, 0.24)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + 15, y + 18);
+  ctx.lineTo(x + 15, y + h - 18);
+  ctx.stroke();
+
+  if (h > 84) {
+    drawPillarFeatherAccent(x + w * 0.58, top ? y + h - 74 : y + 54, top ? -0.28 : 0.28);
+  }
+}
+
+function drawPillarBands(x, y, w, h, top) {
+  const bandGap = 64;
+  const start = top ? y + 36 : y + 24;
+  const end = y + h - 28;
+  for (let bandY = start; bandY < end; bandY += bandGap) {
+    ctx.fillStyle = "#071013";
+    roundedRect(bandY % 2 ? x + 6 : x + 9, bandY + 2, w - 10, 11, 4, "#071013");
+    const band = ctx.createLinearGradient(x, bandY, x + w, bandY);
+    band.addColorStop(0, "#fff69b");
+    band.addColorStop(0.45, "#f7e85f");
+    band.addColorStop(1, "#b9702c");
+    roundedRect(x + 4, bandY, w - 12, 11, 4, band);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.34)";
+    ctx.fillRect(x + 11, bandY + 2, Math.max(4, w * 0.18), 2);
+  }
+}
+
+function drawPillarCap(x, y, w, h, depth, top, glow) {
+  const ink = "#071013";
+
+  ctx.fillStyle = "#176b59";
+  ctx.beginPath();
+  ctx.moveTo(x + w, y + depth);
+  ctx.lineTo(x + w + depth, y);
+  ctx.lineTo(x + w + depth, y + h);
+  ctx.lineTo(x + w, y + h + depth);
+  ctx.closePath();
+  ctx.fill();
+
+  const cap = ctx.createLinearGradient(x, y, x + w, y + h);
+  cap.addColorStop(0, "#9af0c5");
+  cap.addColorStop(0.36, "#49e09e");
+  cap.addColorStop(0.78, "#20956f");
+  cap.addColorStop(1, "#176b59");
+  roundedRect(x, y, w, h, 8, cap);
+
+  ctx.fillStyle = top ? "rgba(7, 16, 19, 0.22)" : "rgba(249, 255, 207, 0.28)";
+  ctx.fillRect(x + 6, top ? y + h - 10 : y + 6, w - 12, 6);
+  ctx.fillStyle = top ? "rgba(249, 255, 207, 0.28)" : "rgba(7, 16, 19, 0.18)";
+  ctx.fillRect(x + 12, top ? y + 6 : y + h - 11, Math.max(10, w * 0.28), 5);
+
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 4;
+  roundedRectStroke(x, y, w, h, 8);
+  ctx.beginPath();
+  ctx.moveTo(x + w, y + depth);
+  ctx.lineTo(x + w + depth, y);
+  ctx.lineTo(x + w + depth, y + h);
+  ctx.lineTo(x + w, y + h + depth);
+  ctx.closePath();
+  ctx.stroke();
+
+  const rimY = top ? y + h - 8 : y + 6;
+  ctx.strokeStyle = `rgba(249, 255, 207, ${0.26 + glow * 0.24})`;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x + 12, rimY);
+  ctx.lineTo(x + w - 14, rimY);
+  ctx.stroke();
+}
+
+function drawPillarFeatherAccent(x, y, angle) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.scale(0.52, 0.52);
+  ctx.fillStyle = "#071013";
+  ctx.beginPath();
+  ctx.moveTo(-5, 20);
+  ctx.bezierCurveTo(18, 8, 23, -16, 1, -24);
+  ctx.bezierCurveTo(-19, -13, -18, 8, -5, 20);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#f7e85f";
+  ctx.beginPath();
+  ctx.moveTo(-4, 15);
+  ctx.bezierCurveTo(12, 5, 16, -11, 2, -18);
+  ctx.bezierCurveTo(-11, -9, -12, 6, -4, 15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#b9702c";
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(-4, 15);
+  ctx.quadraticCurveTo(0, 0, 3, -17);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGapEdgeSpark(gate, glow) {
+  const alpha = 0.18 + glow * 0.16;
+  ctx.fillStyle = `rgba(255, 246, 155, ${alpha})`;
+  roundedRect(gate.x + 8, gate.gapTop - 5, gate.w - 16, 5, 3, ctx.fillStyle);
+  roundedRect(gate.x + 8, gate.gapBottom, gate.w - 16, 5, 3, ctx.fillStyle);
+
+  ctx.fillStyle = `rgba(135, 255, 226, ${0.12 + glow * 0.14})`;
+  ctx.beginPath();
+  ctx.ellipse(gate.x + gate.w * 0.5, gate.gapTop - 16, gate.w * 0.34, 6, 0, 0, Math.PI * 2);
+  ctx.ellipse(gate.x + gate.w * 0.5, gate.gapBottom + 16, gate.w * 0.34, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawFeathers() {
