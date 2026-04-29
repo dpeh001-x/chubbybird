@@ -9,7 +9,8 @@ const startButton = document.querySelector("#startButton");
 const DPR_LIMIT = 2;
 const bestKey = "rushwing-best";
 const BACKGROUND_VIDEO_OPACITY = 0.3;
-const BACKGROUND_VIDEO_RATE = 0.45;
+const BACKGROUND_VIDEO_RATE = 0.6;
+const BACKGROUND_BLEND_MS = 115;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 const backgroundVideo = document.createElement("video");
 backgroundVideo.src = "assets/animated-background.mp4?v=retro-bg-1";
@@ -30,6 +31,18 @@ const audio = {
   ctx: null,
   master: null,
 };
+const backgroundBlend = {
+  previous: document.createElement("canvas"),
+  current: document.createElement("canvas"),
+  previousCtx: null,
+  currentCtx: null,
+  frameId: -1,
+  changedAt: 0,
+  hasPrevious: false,
+  hasCurrent: false,
+};
+backgroundBlend.previousCtx = backgroundBlend.previous.getContext("2d");
+backgroundBlend.currentCtx = backgroundBlend.current.getContext("2d");
 const characterImage = new Image();
 characterImage.src = "assets/chubby-bird-sprites.png";
 const characterSprite = {
@@ -450,9 +463,23 @@ function drawAnimatedBackground() {
     return false;
   }
 
+  updateBackgroundBlend();
   ctx.save();
-  ctx.globalAlpha = BACKGROUND_VIDEO_OPACITY;
-  drawVideoCover(backgroundVideo);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  if (backgroundBlend.hasCurrent) {
+    const elapsed = performance.now() - backgroundBlend.changedAt;
+    const mix = backgroundBlend.hasPrevious ? smoothStep(Math.min(1, elapsed / BACKGROUND_BLEND_MS)) : 1;
+    if (backgroundBlend.hasPrevious && mix < 1) {
+      ctx.globalAlpha = BACKGROUND_VIDEO_OPACITY * (1 - mix);
+      ctx.drawImage(backgroundBlend.previous, 0, 0, state.width, state.height);
+    }
+    ctx.globalAlpha = BACKGROUND_VIDEO_OPACITY * mix;
+    ctx.drawImage(backgroundBlend.current, 0, 0, state.width, state.height);
+  } else {
+    ctx.globalAlpha = BACKGROUND_VIDEO_OPACITY;
+    drawVideoCover(backgroundVideo);
+  }
   ctx.restore();
   return true;
 }
@@ -463,12 +490,61 @@ function drawBlackBackground() {
 }
 
 function drawVideoCover(video) {
-  const scale = Math.max(state.width / video.videoWidth, state.height / video.videoHeight);
+  drawVideoCoverToContext(ctx, video, state.width, state.height);
+}
+
+function drawVideoCoverToContext(targetCtx, video, targetWidth, targetHeight) {
+  const scale = Math.max(targetWidth / video.videoWidth, targetHeight / video.videoHeight);
   const drawW = video.videoWidth * scale;
   const drawH = video.videoHeight * scale;
-  const drawX = (state.width - drawW) * 0.5;
-  const drawY = (state.height - drawH) * 0.5;
-  ctx.drawImage(video, drawX, drawY, drawW, drawH);
+  const drawX = (targetWidth - drawW) * 0.5;
+  const drawY = (targetHeight - drawH) * 0.5;
+  targetCtx.drawImage(video, drawX, drawY, drawW, drawH);
+}
+
+function updateBackgroundBlend() {
+  const frameId = getBackgroundFrameId();
+  if (frameId === backgroundBlend.frameId) return;
+
+  const dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
+  const width = Math.max(1, Math.floor(state.width * dpr));
+  const height = Math.max(1, Math.floor(state.height * dpr));
+  if (backgroundBlend.current.width !== width || backgroundBlend.current.height !== height) {
+    backgroundBlend.previous.width = width;
+    backgroundBlend.previous.height = height;
+    backgroundBlend.current.width = width;
+    backgroundBlend.current.height = height;
+    backgroundBlend.hasPrevious = false;
+    backgroundBlend.hasCurrent = false;
+  }
+
+  if (backgroundBlend.hasCurrent) {
+    backgroundBlend.previousCtx.clearRect(0, 0, width, height);
+    backgroundBlend.previousCtx.drawImage(backgroundBlend.current, 0, 0);
+    backgroundBlend.hasPrevious = true;
+  }
+
+  backgroundBlend.currentCtx.imageSmoothingEnabled = true;
+  backgroundBlend.currentCtx.imageSmoothingQuality = "high";
+  backgroundBlend.currentCtx.clearRect(0, 0, width, height);
+  drawVideoCoverToContext(backgroundBlend.currentCtx, backgroundVideo, width, height);
+  backgroundBlend.frameId = frameId;
+  backgroundBlend.changedAt = performance.now();
+  backgroundBlend.hasCurrent = true;
+}
+
+function getBackgroundFrameId() {
+  if (typeof backgroundVideo.getVideoPlaybackQuality === "function") {
+    const quality = backgroundVideo.getVideoPlaybackQuality();
+    if (Number.isFinite(quality.totalVideoFrames)) {
+      return quality.totalVideoFrames;
+    }
+  }
+  return Math.floor(backgroundVideo.currentTime * 30);
+}
+
+function smoothStep(value) {
+  return value * value * (3 - 2 * value);
 }
 
 function drawGeneratedBackground() {
