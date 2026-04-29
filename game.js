@@ -10,8 +10,9 @@ const DPR_LIMIT = 2;
 const bestKey = "rushwing-best";
 const BACKGROUND_VIDEO_OPACITY = 0.3;
 const BACKGROUND_VIDEO_RATE = 0.45;
+const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 const backgroundVideo = document.createElement("video");
-backgroundVideo.src = "assets/animated-background.mp4";
+backgroundVideo.src = "assets/animated-background.mp4?v=retro-bg-1";
 backgroundVideo.muted = true;
 backgroundVideo.defaultMuted = true;
 backgroundVideo.loop = true;
@@ -25,6 +26,10 @@ backgroundVideo.setAttribute("webkit-playsinline", "");
 backgroundVideo.addEventListener("loadedmetadata", () => {
   backgroundVideo.playbackRate = BACKGROUND_VIDEO_RATE;
 });
+const audio = {
+  ctx: null,
+  master: null,
+};
 const characterImage = new Image();
 characterImage.src = "assets/chubby-bird-sprites.png";
 const characterSprite = {
@@ -84,6 +89,7 @@ function resize() {
 
 function resetGame() {
   startBackgroundVideo();
+  playStartSound();
   state.running = true;
   state.crashed = false;
   state.lastTime = performance.now();
@@ -154,6 +160,7 @@ function flap(power = 1, horizontal = 0) {
   bird.invuln = Math.max(bird.invuln, 0.08);
   state.speed += horizontal * 16;
   burst(bird.x - 8, bird.y + 12, 9 + power * 5, "#f7e85f");
+  playFlapSound(power);
 }
 
 function dashForward(distance, held) {
@@ -167,6 +174,7 @@ function dashForward(distance, held) {
   spawnDashEffects(bird.x - 6, bird.y, strength);
   burst(bird.x - 24, bird.y, 26 + strength * 18, "#87ffe2");
   burst(bird.x - 38, bird.y + 10, 22, "#f7e85f");
+  playDashSound(strength);
 }
 
 function spawnDashEffects(x, y, strength) {
@@ -282,6 +290,7 @@ function crash() {
   state.running = false;
   state.shake = 20;
   burst(state.bird.x, state.bird.y, 38, "#ff6c51");
+  playCrashSound();
   state.best = Math.max(state.best, state.score);
   localStorage.setItem(bestKey, state.best);
   overlay.querySelector("h1").textContent = "Run Over";
@@ -360,6 +369,7 @@ function update(dt) {
       gate.scored = true;
       state.score += 1;
       state.speed += 20;
+      playScoreSound();
       updateHud();
     }
     const sweptLeft = Math.min(previousX, gate.x);
@@ -431,8 +441,8 @@ function drawDashFlash() {
 }
 
 function drawBackground() {
-  if (drawAnimatedBackground()) return;
-  drawGeneratedBackground();
+  drawBlackBackground();
+  drawAnimatedBackground();
 }
 
 function drawAnimatedBackground() {
@@ -440,16 +450,16 @@ function drawAnimatedBackground() {
     return false;
   }
 
-  drawGeneratedBackground();
   ctx.save();
   ctx.globalAlpha = BACKGROUND_VIDEO_OPACITY;
   drawVideoCover(backgroundVideo);
   ctx.restore();
-  ctx.fillStyle = "rgba(3, 12, 18, 0.1)";
-  ctx.fillRect(0, 0, state.width, state.height);
-  ctx.fillStyle = "rgba(249, 255, 207, 0.05)";
-  ctx.fillRect(0, state.height * 0.34, state.width, state.height * 0.08);
   return true;
+}
+
+function drawBlackBackground() {
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, state.width, state.height);
 }
 
 function drawVideoCover(video) {
@@ -514,6 +524,93 @@ function startBackgroundVideo() {
   if (play && typeof play.catch === "function") {
     play.catch(() => {});
   }
+}
+
+function resumeAudio() {
+  if (!AudioContextCtor) return null;
+  if (!audio.ctx) {
+    audio.ctx = new AudioContextCtor();
+    audio.master = audio.ctx.createGain();
+    audio.master.gain.value = 0.18;
+    audio.master.connect(audio.ctx.destination);
+  }
+  if (audio.ctx.state === "suspended") {
+    audio.ctx.resume().catch(() => {});
+  }
+  return audio.ctx;
+}
+
+function playTone(type, startFreq, endFreq, duration, volume, delay = 0) {
+  const audioCtx = resumeAudio();
+  if (!audioCtx) return;
+
+  const start = audioCtx.currentTime + delay;
+  const oscillator = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(startFreq, start);
+  oscillator.frequency.exponentialRampToValueAtTime(Math.max(1, endFreq), start + duration);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  oscillator.connect(gain);
+  gain.connect(audio.master);
+  oscillator.start(start);
+  oscillator.stop(start + duration + 0.02);
+}
+
+function playNoise(duration, volume, delay = 0) {
+  const audioCtx = resumeAudio();
+  if (!audioCtx) return;
+
+  const start = audioCtx.currentTime + delay;
+  const length = Math.max(1, Math.floor(audioCtx.sampleRate * duration));
+  const buffer = audioCtx.createBuffer(1, length, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i += 1) {
+    data[i] = (Math.random() * 2 - 1) * (1 - i / length);
+  }
+
+  const source = audioCtx.createBufferSource();
+  const filter = audioCtx.createBiquadFilter();
+  const gain = audioCtx.createGain();
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(900, start);
+  filter.frequency.exponentialRampToValueAtTime(180, start + duration);
+  gain.gain.setValueAtTime(volume, start);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  source.buffer = buffer;
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(audio.master);
+  source.start(start);
+  source.stop(start + duration + 0.02);
+}
+
+function playStartSound() {
+  playTone("square", 420, 620, 0.06, 0.045);
+  playTone("square", 620, 880, 0.08, 0.05, 0.07);
+}
+
+function playFlapSound(power) {
+  const lift = Math.min(1.6, power);
+  playTone("square", 520 + lift * 55, 780 + lift * 110, 0.075, 0.045);
+}
+
+function playDashSound(strength) {
+  playTone("sawtooth", 180 + strength * 80, 70, 0.16, 0.075);
+  playTone("square", 860, 520, 0.1, 0.035, 0.025);
+  playNoise(0.13, 0.05);
+}
+
+function playScoreSound() {
+  playTone("square", 680, 920, 0.07, 0.04);
+  playTone("square", 920, 1220, 0.08, 0.04, 0.07);
+}
+
+function playCrashSound() {
+  playTone("sawtooth", 170, 45, 0.28, 0.075);
+  playNoise(0.22, 0.08);
 }
 
 function drawRidges() {
