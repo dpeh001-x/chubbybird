@@ -8,6 +8,17 @@ const startButton = document.querySelector("#startButton");
 
 const DPR_LIMIT = 2;
 const bestKey = "rushwing-best";
+const backgroundVideo = document.createElement("video");
+backgroundVideo.src = "assets/animated-background.mp4";
+backgroundVideo.muted = true;
+backgroundVideo.defaultMuted = true;
+backgroundVideo.loop = true;
+backgroundVideo.autoplay = true;
+backgroundVideo.playsInline = true;
+backgroundVideo.preload = "auto";
+backgroundVideo.setAttribute("muted", "");
+backgroundVideo.setAttribute("playsinline", "");
+backgroundVideo.setAttribute("webkit-playsinline", "");
 const characterImage = new Image();
 characterImage.src = "assets/chubby-bird-sprites.png";
 const characterSprite = {
@@ -65,6 +76,7 @@ function resize() {
 }
 
 function resetGame() {
+  startBackgroundVideo();
   state.running = true;
   state.crashed = false;
   state.lastTime = performance.now();
@@ -410,6 +422,33 @@ function drawDashFlash() {
 }
 
 function drawBackground() {
+  if (drawAnimatedBackground()) return;
+  drawGeneratedBackground();
+}
+
+function drawAnimatedBackground() {
+  if (backgroundVideo.readyState < 2 || !backgroundVideo.videoWidth || !backgroundVideo.videoHeight) {
+    return false;
+  }
+
+  drawVideoCover(backgroundVideo);
+  ctx.fillStyle = "rgba(3, 12, 18, 0.18)";
+  ctx.fillRect(0, 0, state.width, state.height);
+  ctx.fillStyle = "rgba(249, 255, 207, 0.05)";
+  ctx.fillRect(0, state.height * 0.34, state.width, state.height * 0.08);
+  return true;
+}
+
+function drawVideoCover(video) {
+  const scale = Math.max(state.width / video.videoWidth, state.height / video.videoHeight);
+  const drawW = video.videoWidth * scale;
+  const drawH = video.videoHeight * scale;
+  const drawX = (state.width - drawW) * 0.5;
+  const drawY = (state.height - drawH) * 0.5;
+  ctx.drawImage(video, drawX, drawY, drawW, drawH);
+}
+
+function drawGeneratedBackground() {
   ctx.fillStyle = "#123549";
   ctx.fillRect(0, 0, state.width, state.height);
 
@@ -452,6 +491,14 @@ function drawBackground() {
     ctx.ellipse(cloud.x - cloud.r * 0.32, cloud.y - 5, cloud.r * 0.92, cloud.r * 0.18, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#44616a";
+  }
+}
+
+function startBackgroundVideo() {
+  if (!backgroundVideo.paused) return;
+  const play = backgroundVideo.play();
+  if (play && typeof play.catch === "function") {
+    play.catch(() => {});
   }
 }
 
@@ -953,4 +1000,5 @@ window.addEventListener("keydown", (event) => {
 startButton.addEventListener("click", resetGame);
 
 resize();
+startBackgroundVideo();
 requestAnimationFrame(step);
