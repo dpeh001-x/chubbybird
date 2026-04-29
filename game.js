@@ -127,8 +127,8 @@ function spawnGate() {
 
 function flap(power = 1, horizontal = 0) {
   const bird = state.bird;
-  bird.vy = Math.min(bird.vy, 0) - 360 * power;
-  bird.y -= 6 * power;
+  bird.vy = Math.min(bird.vy, 0) - 265 * power;
+  bird.y -= 3.5 * power;
   bird.invuln = Math.max(bird.invuln, 0.08);
   state.speed += horizontal * 16;
   burst(bird.x - 8, bird.y + 12, 9 + power * 5, "#f7e85f");
@@ -241,7 +241,7 @@ function endHold(x, y) {
       return;
     }
     const upward = dy < 0 ? 1.22 : 0.72;
-    flap(1 + Math.min(distance / 220, 0.9) * upward + held * 0.38, Math.abs(dx) / 100);
+    flap(0.82 + Math.min(distance / 240, 0.72) * upward + held * 0.24, Math.abs(dx) / 100);
     if (dy > 34) {
       state.bird.vy += 260;
       state.speed += 26;
