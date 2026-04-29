@@ -5,6 +5,12 @@
     sans-serif;
   background: #000000;
   color: #f5fbff;
+  --ink: #071013;
+  --cream: #fff4bf;
+  --gold: #f7e85f;
+  --gold-deep: #b9702c;
+  --mint: #7fe7bb;
+  --sky: #87ffe2;
 }
 
 * {
@@ -60,29 +66,65 @@ canvas {
   left: 50%;
   display: grid;
   grid-template-columns: repeat(3, minmax(74px, 1fr));
-  gap: 8px;
-  width: min(420px, calc(100vw - 24px));
+  gap: 10px;
+  width: min(452px, calc(100vw - 24px));
   transform: translateX(-50%);
   pointer-events: none;
   z-index: 2;
 }
 
 .hud > div {
+  position: relative;
+  overflow: hidden;
   min-height: 58px;
-  padding: 8px 12px;
-  border: 3px solid #071013;
+  padding: 9px 13px 9px 42px;
+  border: 3px solid var(--ink);
   border-radius: 8px;
-  background: #213a42;
+  background:
+    radial-gradient(circle at 92% 18%, rgba(255, 246, 155, 0.5) 0 10px, transparent 11px),
+    linear-gradient(145deg, #fff4bf 0%, #ffd86d 48%, #e98944 100%);
   box-shadow:
-    inset 8px 8px 0 rgba(255, 255, 255, 0.08),
-    7px 7px 0 rgba(7, 16, 19, 0.72);
+    inset 6px 6px 0 rgba(255, 255, 255, 0.32),
+    inset -7px -7px 0 rgba(185, 112, 44, 0.26),
+    0 5px 0 #8a4c27,
+    0 9px 0 rgba(7, 16, 19, 0.78);
+}
+
+.hud > div::before {
+  position: absolute;
+  top: 14px;
+  left: 13px;
+  width: 19px;
+  height: 28px;
+  border: 3px solid var(--ink);
+  border-radius: 60% 45% 60% 45%;
+  background:
+    linear-gradient(90deg, transparent 45%, rgba(185, 112, 44, 0.62) 46% 56%, transparent 57%),
+    linear-gradient(145deg, #fff69b 0%, var(--gold) 52%, #e78935 100%);
+  box-shadow:
+    inset 4px 3px 0 rgba(255, 255, 255, 0.45),
+    3px 3px 0 rgba(7, 16, 19, 0.25);
+  content: "";
+  transform: rotate(-24deg);
+}
+
+.hud > div::after {
+  position: absolute;
+  right: -18px;
+  bottom: -21px;
+  width: 64px;
+  height: 42px;
+  border: 3px solid rgba(7, 16, 19, 0.28);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  content: "";
 }
 
 .label {
   display: block;
-  color: rgba(245, 251, 255, 0.62);
+  color: rgba(61, 38, 23, 0.7);
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 900;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -90,10 +132,12 @@ canvas {
 strong {
   display: block;
   margin-top: 2px;
-  color: #f9ffcf;
+  color: #3a2417;
   font-size: clamp(1.2rem, 4vw, 1.9rem);
   line-height: 1;
-  text-shadow: 3px 3px 0 #071013;
+  text-shadow:
+    2px 2px 0 rgba(255, 255, 255, 0.42),
+    0 3px 0 rgba(185, 112, 44, 0.28);
 }
 
 .overlay {
@@ -115,30 +159,41 @@ strong {
 
 .overlay h1 {
   margin: 0;
-  color: #f9ffcf;
+  color: #fff4bf;
   font-size: clamp(2.9rem, 10vw, 6.6rem);
   line-height: 0.9;
   text-shadow:
-    0 5px 0 #071013,
-    7px 10px 0 rgba(255, 108, 81, 0.48);
+    0 5px 0 var(--ink),
+    5px 8px 0 rgba(247, 232, 95, 0.38),
+    9px 12px 0 rgba(255, 108, 81, 0.42);
 }
 
 .overlay p {
   width: min(560px, 86vw);
   margin: 0 auto;
-  color: rgba(245, 251, 255, 0.78);
-  text-shadow: 2px 2px 0 #071013;
+  padding: 11px 15px;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(255, 244, 191, 0.95), rgba(247, 232, 95, 0.86));
+  color: #3a2417;
+  box-shadow:
+    inset 5px 5px 0 rgba(255, 255, 255, 0.3),
+    6px 7px 0 rgba(7, 16, 19, 0.7);
   font-size: clamp(1rem, 3vw, 1.22rem);
   line-height: 1.5;
+  text-shadow: none;
 }
 
 button {
   justify-self: center;
   min-width: 148px;
   min-height: 48px;
-  border: 3px solid #071013;
+  border: 3px solid var(--ink);
   border-radius: 8px;
-  background: #f7e85f;
+  background:
+    radial-gradient(circle at 80% 18%, #fff8ad 0 8px, transparent 9px),
+    linear-gradient(145deg, #fff69b, var(--gold) 56%, #e78a36);
   color: #16211e;
   cursor: pointer;
   font: inherit;
@@ -165,10 +220,18 @@ button:active {
   .hud {
     top: max(10px, env(safe-area-inset-top));
     grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
   }
 
   .hud > div {
     min-height: 50px;
-    padding: 7px 8px;
+    padding: 7px 8px 7px 31px;
+  }
+
+  .hud > div::before {
+    top: 13px;
+    left: 8px;
+    width: 15px;
+    height: 22px;
   }
 }

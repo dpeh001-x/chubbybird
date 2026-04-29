@@ -443,7 +443,7 @@ function update(dt) {
   }
   state.dashEffects = state.dashEffects.filter((effect) => effect.age < effect.life);
 
-  if (bird.y - bird.radius < 0 || bird.y + bird.radius > state.height) crash();
+  if (bird.y - bird.radius < 0 || bird.y + bird.radius > getFloorSurfaceY()) crash();
 }
 
 function draw() {
@@ -1050,20 +1050,116 @@ function drawDashEffects() {
 }
 
 function drawForeground() {
-  const groundY = state.height - 34;
-  ctx.fillStyle = "#10251f";
-  ctx.fillRect(0, groundY, state.width, state.height - groundY);
-  ctx.fillStyle = "#1f5648";
-  ctx.fillRect(0, groundY, state.width, 10);
+  const groundY = getFloorSurfaceY() + 8;
+  const time = performance.now();
+  const topOffset = (time * -0.18) % 42;
+  const tileOffset = (time * -0.34) % 74;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+  ctx.fillRect(0, groundY - 14, state.width, 18);
+
+  ctx.fillStyle = "#071013";
+  roundedRect(-8, groundY - 5, state.width + 16, 64, 8, "#071013");
+
+  const topGradient = ctx.createLinearGradient(0, groundY - 5, 0, groundY + 22);
+  topGradient.addColorStop(0, "#fff69b");
+  topGradient.addColorStop(0.32, "#f7e85f");
+  topGradient.addColorStop(1, "#d18432");
+  ctx.fillStyle = topGradient;
+  roundedRect(-4, groundY - 12, state.width + 8, 28, 8, topGradient);
+
   ctx.strokeStyle = "#071013";
   ctx.lineWidth = 4;
-  ctx.strokeRect(-3, groundY - 1, state.width + 6, 12);
+  roundedRectStroke(-4, groundY - 12, state.width + 8, 28, 8);
 
-  ctx.fillStyle = "rgba(249, 255, 207, 0.26)";
-  const offset = (performance.now() * -0.36) % 56;
-  for (let x = offset; x < state.width + 56; x += 56) {
-    ctx.fillRect(x, groundY + 10, 24, 3);
+  ctx.fillStyle = "#1f5648";
+  roundedRect(-4, groundY + 10, state.width + 8, 56, 8, "#1f5648");
+  ctx.fillStyle = "#12392f";
+  ctx.fillRect(0, groundY + 32, state.width, state.height - groundY);
+
+  for (let x = topOffset - 42; x < state.width + 42; x += 42) {
+    ctx.fillStyle = "#49e09e";
+    ctx.beginPath();
+    ctx.moveTo(x, groundY - 9);
+    ctx.quadraticCurveTo(x + 10, groundY - 28, x + 20, groundY - 9);
+    ctx.quadraticCurveTo(x + 30, groundY + 1, x + 42, groundY - 9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#071013";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255, 246, 155, 0.62)";
+    ctx.beginPath();
+    ctx.ellipse(x + 18, groundY - 11, 6, 2.4, -0.2, 0, Math.PI * 2);
+    ctx.fill();
   }
+
+  ctx.fillStyle = "#0f2e28";
+  ctx.strokeStyle = "rgba(7, 16, 19, 0.72)";
+  ctx.lineWidth = 2;
+  for (let x = tileOffset - 74; x < state.width + 80; x += 74) {
+    roundedRect(x, groundY + 20, 50, 14, 5, "#2b6d55");
+    ctx.strokeRect(x + 3, groundY + 22, 44, 9);
+    roundedRect(x + 30, groundY + 40, 38, 10, 5, "#16483c");
+  }
+
+  ctx.lineCap = "round";
+  for (let x = tileOffset - 60; x < state.width + 90; x += 92) {
+    drawGroundFeather(x + 24, groundY + 18, 0.42, -0.45);
+    drawGroundPebble(x + 64, groundY + 29, 7, "#f7e85f");
+    drawGroundPebble(x + 78, groundY + 37, 4, "#87ffe2");
+  }
+  ctx.lineCap = "butt";
+  ctx.restore();
+}
+
+function getFloorSurfaceY() {
+  return state.height - 52;
+}
+
+function drawGroundPebble(x, y, radius, color) {
+  ctx.fillStyle = "#071013";
+  ctx.beginPath();
+  ctx.ellipse(x + 2, y + 2, radius + 1, radius * 0.58 + 1, -0.08, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(x, y, radius, radius * 0.58, -0.08, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.42)";
+  ctx.beginPath();
+  ctx.ellipse(x - radius * 0.24, y - radius * 0.18, radius * 0.28, radius * 0.12, -0.08, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawGroundFeather(x, y, scale, angle) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#071013";
+  ctx.beginPath();
+  ctx.moveTo(-5, 18);
+  ctx.bezierCurveTo(17, 8, 20, -13, 1, -21);
+  ctx.bezierCurveTo(-16, -11, -16, 7, -5, 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#fff69b";
+  ctx.beginPath();
+  ctx.moveTo(-4, 14);
+  ctx.bezierCurveTo(10, 4, 13, -9, 2, -16);
+  ctx.bezierCurveTo(-9, -8, -10, 5, -4, 14);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#b9702c";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-4, 14);
+  ctx.quadraticCurveTo(-1, 0, 3, -15);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function roundedRect(x, y, w, h, r, fillStyle) {
