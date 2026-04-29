@@ -8,6 +8,8 @@ const startButton = document.querySelector("#startButton");
 
 const DPR_LIMIT = 2;
 const bestKey = "rushwing-best";
+const BACKGROUND_VIDEO_OPACITY = 0.3;
+const BACKGROUND_VIDEO_RATE = 0.45;
 const backgroundVideo = document.createElement("video");
 backgroundVideo.src = "assets/animated-background.mp4";
 backgroundVideo.muted = true;
@@ -16,9 +18,13 @@ backgroundVideo.loop = true;
 backgroundVideo.autoplay = true;
 backgroundVideo.playsInline = true;
 backgroundVideo.preload = "auto";
+backgroundVideo.playbackRate = BACKGROUND_VIDEO_RATE;
 backgroundVideo.setAttribute("muted", "");
 backgroundVideo.setAttribute("playsinline", "");
 backgroundVideo.setAttribute("webkit-playsinline", "");
+backgroundVideo.addEventListener("loadedmetadata", () => {
+  backgroundVideo.playbackRate = BACKGROUND_VIDEO_RATE;
+});
 const characterImage = new Image();
 characterImage.src = "assets/chubby-bird-sprites.png";
 const characterSprite = {
@@ -44,6 +50,7 @@ const state = {
   charge: 0,
   holdStart: 0,
   pointerStart: null,
+  lastRightTap: 0,
   particles: [],
   dashEffects: [],
   gates: [],
@@ -87,6 +94,7 @@ function resetGame() {
   state.spawnTimer = 0.85;
   state.shake = 0;
   state.charge = 0;
+  state.lastRightTap = 0;
   state.gates = [];
   state.particles = [];
   state.dashEffects = [];
@@ -277,7 +285,8 @@ function crash() {
   state.best = Math.max(state.best, state.score);
   localStorage.setItem(bestKey, state.best);
   overlay.querySelector("h1").textContent = "Run Over";
-  overlay.querySelector("p").textContent = `Score ${state.score}. Swipe right to surge forward, or release charged holds to punch through the next pace spike.`;
+  overlay.querySelector("p").textContent =
+    `Score ${state.score}. Tap or Space to flap. Swipe right or double-tap Right to dash. Hold, then release for a charged hop.`;
   startButton.textContent = "Retry";
   overlay.classList.remove("hidden");
   updateHud();
@@ -431,8 +440,12 @@ function drawAnimatedBackground() {
     return false;
   }
 
+  drawGeneratedBackground();
+  ctx.save();
+  ctx.globalAlpha = BACKGROUND_VIDEO_OPACITY;
   drawVideoCover(backgroundVideo);
-  ctx.fillStyle = "rgba(3, 12, 18, 0.18)";
+  ctx.restore();
+  ctx.fillStyle = "rgba(3, 12, 18, 0.1)";
   ctx.fillRect(0, 0, state.width, state.height);
   ctx.fillStyle = "rgba(249, 255, 207, 0.05)";
   ctx.fillRect(0, state.height * 0.34, state.width, state.height * 0.08);
@@ -495,6 +508,7 @@ function drawGeneratedBackground() {
 }
 
 function startBackgroundVideo() {
+  backgroundVideo.playbackRate = BACKGROUND_VIDEO_RATE;
   if (!backgroundVideo.paused) return;
   const play = backgroundVideo.play();
   if (play && typeof play.catch === "function") {
@@ -991,6 +1005,19 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     if (!state.running) resetGame();
     flap(event.shiftKey ? 1.8 : 1);
+  }
+  if (event.code === "ArrowRight") {
+    event.preventDefault();
+    if (!state.running) resetGame();
+    if (event.repeat) return;
+
+    const now = performance.now();
+    if (now - state.lastRightTap < 280) {
+      dashForward(230, 0.2);
+      state.lastRightTap = 0;
+    } else {
+      state.lastRightTap = now;
+    }
   }
   if (event.code === "ArrowDown") {
     state.bird.vy += 260;
