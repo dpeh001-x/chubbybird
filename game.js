@@ -1,4 +1,5 @@
 const canvas = document.querySelector("#game");
+const shell = document.querySelector(".game-shell");
 const ctx = canvas.getContext("2d");
 const scoreEl = document.querySelector("#score");
 const bestEl = document.querySelector("#best");
@@ -8,12 +9,11 @@ const startButton = document.querySelector("#startButton");
 
 const DPR_LIMIT = 2;
 const bestKey = "rushwing-best";
-const BACKGROUND_VIDEO_OPACITY = 0.3;
-const BACKGROUND_VIDEO_RATE = 0.6;
-const BACKGROUND_BLEND_MS = 115;
+const BACKGROUND_VIDEO_RATE = 0.8;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 const backgroundVideo = document.createElement("video");
 backgroundVideo.src = "assets/animated-background.mp4?v=retro-bg-1";
+backgroundVideo.className = "background-video";
 backgroundVideo.muted = true;
 backgroundVideo.defaultMuted = true;
 backgroundVideo.loop = true;
@@ -27,22 +27,11 @@ backgroundVideo.setAttribute("webkit-playsinline", "");
 backgroundVideo.addEventListener("loadedmetadata", () => {
   backgroundVideo.playbackRate = BACKGROUND_VIDEO_RATE;
 });
+shell.prepend(backgroundVideo);
 const audio = {
   ctx: null,
   master: null,
 };
-const backgroundBlend = {
-  previous: document.createElement("canvas"),
-  current: document.createElement("canvas"),
-  previousCtx: null,
-  currentCtx: null,
-  frameId: -1,
-  changedAt: 0,
-  hasPrevious: false,
-  hasCurrent: false,
-};
-backgroundBlend.previousCtx = backgroundBlend.previous.getContext("2d");
-backgroundBlend.currentCtx = backgroundBlend.current.getContext("2d");
 const characterImage = new Image();
 characterImage.src = "assets/chubby-bird-sprites.png";
 const characterSprite = {
@@ -65,12 +54,13 @@ const state = {
   dashBoost: 0,
   spawnTimer: 0,
   shake: 0,
-  charge: 0,
-  holdStart: 0,
+  shield: 0,
+  shieldFlash: 0,
   pointerStart: null,
   lastRightTap: 0,
   particles: [],
   dashEffects: [],
+  feathers: [],
   gates: [],
   clouds: [],
   stars: [],
@@ -112,30 +102,13 @@ function resetGame() {
   state.dashBoost = 0;
   state.spawnTimer = 0.85;
   state.shake = 0;
-  state.charge = 0;
+  state.shield = 0;
+  state.shieldFlash = 0;
   state.lastRightTap = 0;
   state.gates = [];
+  state.feathers = [];
   state.particles = [];
   state.dashEffects = [];
-  state.clouds = Array.from({ length: 12 }, () => ({
-    x: Math.random() * state.width,
-    y: Math.random() * state.height * 0.68,
-    r: 18 + Math.random() * 58,
-    s: 14 + Math.random() * 42,
-  }));
-  state.stars = Array.from({ length: 64 }, () => ({
-    x: Math.random() * state.width,
-    y: Math.random() * state.height * 0.66,
-    size: 0.7 + Math.random() * 2.2,
-    twinkle: Math.random() * Math.PI * 2,
-  }));
-  state.ridges = Array.from({ length: 2 }, (_, layer) =>
-    Array.from({ length: 10 }, (_, i) => ({
-      x: i * 190,
-      h: 80 + Math.random() * 135 + layer * 40,
-      w: 170 + Math.random() * 110,
-    })),
-  );
   state.bird.x = Math.max(92, state.width * 0.2);
   state.bird.y = state.height * 0.42;
   state.bird.vy = -220;
@@ -156,14 +129,26 @@ function spawnGate() {
   const gap = Math.max(128, 210 - state.score * 3.2);
   const center = margin + Math.random() * (state.height - margin * 2);
   const width = 72;
-  state.gates.push({
+  const gate = {
     x: state.width + width,
     w: width,
     gapTop: Math.max(74, center - gap * 0.5),
     gapBottom: Math.min(state.height - 56, center + gap * 0.5),
     scored: false,
     pulse: Math.random() * Math.PI,
-  });
+    broken: false,
+  };
+  state.gates.push(gate);
+
+  if (state.score > 0 && Math.random() < 0.42) {
+    state.feathers.push({
+      x: gate.x + gate.w * 0.5,
+      y: gate.gapTop + (gate.gapBottom - gate.gapTop) * (0.34 + Math.random() * 0.32),
+      r: 17,
+      pulse: Math.random() * Math.PI * 2,
+      collected: false,
+    });
+  }
 }
 
 function flap(power = 1, horizontal = 0) {
@@ -176,11 +161,11 @@ function flap(power = 1, horizontal = 0) {
   playFlapSound(power);
 }
 
-function dashForward(distance, held) {
+function dashForward(distance) {
   const bird = state.bird;
   const strength = Math.min(1, distance / 210);
-  state.speed += 6 + strength * 8 + held * 4;
-  state.dashBoost = Math.max(state.dashBoost, 240 + strength * 300 + held * 110);
+  state.speed += 6 + strength * 8;
+  state.dashBoost = Math.max(state.dashBoost, 240 + strength * 300);
   state.dash = Math.min(1, state.dash + 0.9 + strength * 0.55);
   state.shake = Math.max(state.shake, 7 + strength * 8);
   bird.vy = Math.min(bird.vy, -130) - 90 * strength;
@@ -255,20 +240,17 @@ function burst(x, y, count, color) {
   }
 }
 
-function startHold(x, y) {
-  state.pointerStart = { x, y, t: performance.now() };
-  state.holdStart = performance.now();
+function startGesture(x, y) {
+  state.pointerStart = { x, y };
 }
 
-function endHold(x, y) {
+function endGesture(x, y) {
   if (!state.running) {
     resetGame();
     return;
   }
 
   const start = state.pointerStart;
-  const held = Math.min(1, (performance.now() - state.holdStart) / 620);
-  state.charge = 0;
   if (!start) {
     flap(1);
     return;
@@ -280,19 +262,19 @@ function endHold(x, y) {
   if (distance > 28) {
     const rightSwipe = dx > 42 && Math.abs(dx) > Math.abs(dy) * 1.25;
     if (rightSwipe) {
-      dashForward(distance, held);
+      dashForward(distance);
       state.pointerStart = null;
       return;
     }
     const upward = dy < 0 ? 1.22 : 0.72;
-    flap(0.82 + Math.min(distance / 240, 0.72) * upward + held * 0.24, Math.abs(dx) / 100);
+    flap(0.82 + Math.min(distance / 240, 0.72) * upward, Math.abs(dx) / 100);
     if (dy > 34) {
       state.bird.vy += 260;
       state.speed += 26;
       burst(state.bird.x, state.bird.y - 14, 14, "#ff6c51");
     }
   } else {
-    flap(1 + held * 1.3);
+    flap(1);
   }
   state.pointerStart = null;
 }
@@ -308,10 +290,57 @@ function crash() {
   localStorage.setItem(bestKey, state.best);
   overlay.querySelector("h1").textContent = "Run Over";
   overlay.querySelector("p").textContent =
-    `Score ${state.score}. Tap or Space to flap. Swipe right or double-tap Right to dash. Hold, then release for a charged hop.`;
+    `Score ${state.score}. Tap or Space to flap. Swipe right or double-tap Right to dash. Grab golden feathers for one crash save.`;
   startButton.textContent = "Retry";
   overlay.classList.remove("hidden");
   updateHud();
+}
+
+function collectFeather(feather) {
+  feather.collected = true;
+  state.shield = 1;
+  state.shieldFlash = 1;
+  state.speed = Math.max(420, state.speed - 28);
+  burst(feather.x, feather.y, 24, "#f7e85f");
+  burst(feather.x - 12, feather.y + 4, 12, "#ffffff");
+  playFeatherSound();
+}
+
+function useShield(gate) {
+  state.shield = 0;
+  state.shieldFlash = 1;
+  state.shake = Math.max(state.shake, 18);
+  state.dash = Math.max(state.dash, 0.9);
+  state.dashBoost = Math.max(state.dashBoost, 300);
+  state.bird.invuln = Math.max(state.bird.invuln, 0.7);
+  gate.broken = true;
+  if (!gate.scored) {
+    gate.scored = true;
+    state.score += 1;
+  }
+  spawnGateBreak(gate);
+  burst(state.bird.x - 8, state.bird.y, 34, "#f7e85f");
+  burst(state.bird.x - 20, state.bird.y + 10, 18, "#87ffe2");
+  playShieldSound();
+  updateHud();
+}
+
+function spawnGateBreak(gate) {
+  const pieces = 18;
+  for (let i = 0; i < pieces; i += 1) {
+    const topHalf = i % 2 === 0;
+    state.dashEffects.push({
+      type: "shard",
+      x: gate.x + gate.w * (0.18 + Math.random() * 0.64),
+      y: topHalf ? gate.gapTop - 30 - Math.random() * 70 : gate.gapBottom + 30 + Math.random() * 70,
+      vx: -260 - Math.random() * 420,
+      vy: -220 + Math.random() * 440,
+      age: 0,
+      life: 0.36 + Math.random() * 0.2,
+      size: 7 + Math.random() * 13,
+      color: i % 3 === 0 ? "#f7e85f" : "#49e09e",
+    });
+  }
 }
 
 function step(now) {
@@ -330,7 +359,7 @@ function update(dt) {
   const paceSpeed = state.speed + state.dashBoost;
   state.spawnTimer -= dt;
   state.shake = Math.max(0, state.shake - dt * 50);
-  state.charge = state.pointerStart ? Math.min(1, (performance.now() - state.holdStart) / 620) : 0;
+  state.shieldFlash = Math.max(0, state.shieldFlash - dt * 2.2);
   bird.invuln = Math.max(0, bird.invuln - dt);
   bird.vy += (1240 + paceSpeed * 0.28) * dt;
   bird.y += bird.vy * dt;
@@ -357,23 +386,6 @@ function update(dt) {
     state.spawnTimer = Math.max(0.72, 1.12 - state.score * 0.012);
   }
 
-  for (const cloud of state.clouds) {
-    cloud.x -= cloud.s * dt;
-    if (cloud.x < -cloud.r * 2) {
-      cloud.x = state.width + cloud.r;
-      cloud.y = Math.random() * state.height * 0.68;
-    }
-  }
-
-  for (const star of state.stars) {
-    star.x -= (paceSpeed * 0.02 + star.size * 4) * dt;
-    star.twinkle += dt * 2.8;
-    if (star.x < -8) {
-      star.x = state.width + Math.random() * 80;
-      star.y = Math.random() * state.height * 0.66;
-    }
-  }
-
   for (const gate of state.gates) {
     const previousX = gate.x;
     gate.x -= paceSpeed * dt;
@@ -389,9 +401,26 @@ function update(dt) {
     const sweptRight = Math.max(previousX + gate.w, gate.x + gate.w);
     const withinX = bird.x + bird.radius > sweptLeft && bird.x - bird.radius < sweptRight;
     const outsideGap = bird.y - bird.radius < gate.gapTop || bird.y + bird.radius > gate.gapBottom;
-    if (withinX && outsideGap) crash();
+    if (withinX && outsideGap) {
+      if (state.shield > 0) {
+        useShield(gate);
+      } else {
+        crash();
+      }
+    }
   }
-  state.gates = state.gates.filter((gate) => gate.x > -gate.w - 20);
+  state.gates = state.gates.filter((gate) => !gate.broken && gate.x > -gate.w - 20);
+
+  for (const feather of state.feathers) {
+    feather.x -= paceSpeed * dt;
+    feather.pulse += dt * 7;
+    const dx = feather.x - bird.x;
+    const dy = feather.y - bird.y;
+    if (!feather.collected && Math.hypot(dx, dy) < bird.radius + feather.r) {
+      collectFeather(feather);
+    }
+  }
+  state.feathers = state.feathers.filter((feather) => !feather.collected && feather.x > -40);
 
   for (const p of state.particles) {
     p.life -= dt;
@@ -428,10 +457,10 @@ function draw() {
   drawDashFlash();
   drawSpeedLines();
   drawGates();
+  drawFeathers();
   drawDashEffects();
   drawParticles();
   drawBird();
-  drawCharge();
   drawForeground();
   ctx.restore();
 }
@@ -453,99 +482,7 @@ function drawDashFlash() {
   ctx.fill();
 }
 
-function drawBackground() {
-  drawBlackBackground();
-  drawAnimatedBackground();
-}
-
-function drawAnimatedBackground() {
-  if (backgroundVideo.readyState < 2 || !backgroundVideo.videoWidth || !backgroundVideo.videoHeight) {
-    return false;
-  }
-
-  updateBackgroundBlend();
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  if (backgroundBlend.hasCurrent) {
-    const elapsed = performance.now() - backgroundBlend.changedAt;
-    const mix = backgroundBlend.hasPrevious ? smoothStep(Math.min(1, elapsed / BACKGROUND_BLEND_MS)) : 1;
-    if (backgroundBlend.hasPrevious && mix < 1) {
-      ctx.globalAlpha = BACKGROUND_VIDEO_OPACITY * (1 - mix);
-      ctx.drawImage(backgroundBlend.previous, 0, 0, state.width, state.height);
-    }
-    ctx.globalAlpha = BACKGROUND_VIDEO_OPACITY * mix;
-    ctx.drawImage(backgroundBlend.current, 0, 0, state.width, state.height);
-  } else {
-    ctx.globalAlpha = BACKGROUND_VIDEO_OPACITY;
-    drawVideoCover(backgroundVideo);
-  }
-  ctx.restore();
-  return true;
-}
-
-function drawBlackBackground() {
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, state.width, state.height);
-}
-
-function drawVideoCover(video) {
-  drawVideoCoverToContext(ctx, video, state.width, state.height);
-}
-
-function drawVideoCoverToContext(targetCtx, video, targetWidth, targetHeight) {
-  const scale = Math.max(targetWidth / video.videoWidth, targetHeight / video.videoHeight);
-  const drawW = video.videoWidth * scale;
-  const drawH = video.videoHeight * scale;
-  const drawX = (targetWidth - drawW) * 0.5;
-  const drawY = (targetHeight - drawH) * 0.5;
-  targetCtx.drawImage(video, drawX, drawY, drawW, drawH);
-}
-
-function updateBackgroundBlend() {
-  const frameId = getBackgroundFrameId();
-  if (frameId === backgroundBlend.frameId) return;
-
-  const dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
-  const width = Math.max(1, Math.floor(state.width * dpr));
-  const height = Math.max(1, Math.floor(state.height * dpr));
-  if (backgroundBlend.current.width !== width || backgroundBlend.current.height !== height) {
-    backgroundBlend.previous.width = width;
-    backgroundBlend.previous.height = height;
-    backgroundBlend.current.width = width;
-    backgroundBlend.current.height = height;
-    backgroundBlend.hasPrevious = false;
-    backgroundBlend.hasCurrent = false;
-  }
-
-  if (backgroundBlend.hasCurrent) {
-    backgroundBlend.previousCtx.clearRect(0, 0, width, height);
-    backgroundBlend.previousCtx.drawImage(backgroundBlend.current, 0, 0);
-    backgroundBlend.hasPrevious = true;
-  }
-
-  backgroundBlend.currentCtx.imageSmoothingEnabled = true;
-  backgroundBlend.currentCtx.imageSmoothingQuality = "high";
-  backgroundBlend.currentCtx.clearRect(0, 0, width, height);
-  drawVideoCoverToContext(backgroundBlend.currentCtx, backgroundVideo, width, height);
-  backgroundBlend.frameId = frameId;
-  backgroundBlend.changedAt = performance.now();
-  backgroundBlend.hasCurrent = true;
-}
-
-function getBackgroundFrameId() {
-  if (typeof backgroundVideo.getVideoPlaybackQuality === "function") {
-    const quality = backgroundVideo.getVideoPlaybackQuality();
-    if (Number.isFinite(quality.totalVideoFrames)) {
-      return quality.totalVideoFrames;
-    }
-  }
-  return Math.floor(backgroundVideo.currentTime * 30);
-}
-
-function smoothStep(value) {
-  return value * value * (3 - 2 * value);
-}
+function drawBackground() {}
 
 function drawGeneratedBackground() {
   ctx.fillStyle = "#123549";
@@ -684,6 +621,18 @@ function playScoreSound() {
   playTone("square", 920, 1220, 0.08, 0.04, 0.07);
 }
 
+function playFeatherSound() {
+  playTone("triangle", 760, 1180, 0.07, 0.04);
+  playTone("square", 1180, 1540, 0.08, 0.032, 0.06);
+  playTone("triangle", 1540, 1880, 0.08, 0.024, 0.12);
+}
+
+function playShieldSound() {
+  playTone("square", 520, 180, 0.18, 0.07);
+  playTone("triangle", 280, 740, 0.16, 0.045, 0.03);
+  playNoise(0.11, 0.05);
+}
+
 function playCrashSound() {
   playTone("sawtooth", 170, 45, 0.28, 0.075);
   playNoise(0.22, 0.08);
@@ -757,6 +706,60 @@ function drawGates() {
   }
 }
 
+function drawFeathers() {
+  for (const feather of state.feathers) {
+    const bob = Math.sin(feather.pulse) * 5;
+    drawFeatherIcon(feather.x, feather.y + bob, 0.84 + Math.sin(feather.pulse * 1.4) * 0.05, feather.pulse);
+  }
+}
+
+function drawFeatherIcon(x, y, scale = 1, pulse = 0) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-0.5 + Math.sin(pulse) * 0.08);
+  ctx.scale(scale, scale);
+  ctx.shadowColor = "rgba(247, 232, 95, 0.55)";
+  ctx.shadowBlur = 14;
+
+  ctx.fillStyle = "#071013";
+  ctx.beginPath();
+  ctx.moveTo(-5, 19);
+  ctx.bezierCurveTo(17, 8, 22, -15, 0, -23);
+  ctx.bezierCurveTo(-20, -13, -19, 8, -5, 19);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#f7e85f";
+  ctx.beginPath();
+  ctx.moveTo(-4, 15);
+  ctx.bezierCurveTo(11, 5, 16, -12, 1, -19);
+  ctx.bezierCurveTo(-13, -10, -14, 7, -4, 15);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#fff69b";
+  ctx.beginPath();
+  ctx.moveTo(0, 10);
+  ctx.bezierCurveTo(7, 1, 9, -8, 2, -14);
+  ctx.bezierCurveTo(-3, -7, -5, 4, 0, 10);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "#b9702c";
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-5, 17);
+  ctx.quadraticCurveTo(-1, 0, 3, -17);
+  ctx.moveTo(-2, 5);
+  ctx.lineTo(-9, 1);
+  ctx.moveTo(0, -2);
+  ctx.lineTo(8, -5);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawBird() {
   const b = state.bird;
   ctx.save();
@@ -793,6 +796,9 @@ function drawBird() {
     ctx.globalAlpha = 1;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
+    if (state.shield > 0) {
+      drawFeatherIcon(drawW * 0.22, -drawH * 0.42, 0.48 + state.shieldFlash * 0.18, b.wing);
+    }
     ctx.restore();
     return;
   }
@@ -922,6 +928,9 @@ function drawBird() {
   ctx.ellipse(-10, 36.8, 3, 1.4, -0.12, 0, Math.PI * 2);
   ctx.ellipse(8, 36.8, 3, 1.4, 0.12, 0, Math.PI * 2);
   ctx.fill();
+  if (state.shield > 0) {
+    drawFeatherIcon(22, -24, 0.54 + state.shieldFlash * 0.18, b.wing);
+  }
   ctx.restore();
 }
 
@@ -1040,20 +1049,6 @@ function drawDashEffects() {
   ctx.lineCap = "butt";
 }
 
-function drawCharge() {
-  if (!state.pointerStart || !state.running) return;
-  const b = state.bird;
-  ctx.lineWidth = 7;
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
-  ctx.beginPath();
-  ctx.arc(b.x, b.y, 38, -Math.PI / 2, Math.PI * 1.5);
-  ctx.stroke();
-  ctx.strokeStyle = "#f7e85f";
-  ctx.beginPath();
-  ctx.arc(b.x, b.y, 38, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * state.charge);
-  ctx.stroke();
-}
-
 function drawForeground() {
   const groundY = state.height - 34;
   ctx.fillStyle = "#10251f";
@@ -1153,13 +1148,13 @@ function onStart(event) {
   event.preventDefault();
   const point = pointFromEvent(event);
   if (!state.running && overlay.classList.contains("hidden")) resetGame();
-  startHold(point.x, point.y);
+  startGesture(point.x, point.y);
 }
 
 function onEnd(event) {
   event.preventDefault();
   const point = pointFromEvent(event);
-  endHold(point.x, point.y);
+  endGesture(point.x, point.y);
 }
 
 window.addEventListener("resize", resize);
@@ -1186,7 +1181,7 @@ window.addEventListener("keydown", (event) => {
 
     const now = performance.now();
     if (now - state.lastRightTap < 280) {
-      dashForward(230, 0.2);
+      dashForward(230);
       state.lastRightTap = 0;
     } else {
       state.lastRightTap = now;

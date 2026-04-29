@@ -29,11 +29,26 @@ body {
   height: 100vh;
   min-height: 480px;
   overflow: hidden;
+  background: #000000;
   touch-action: none;
   user-select: none;
 }
 
+.background-video {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.3;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+
 canvas {
+  position: relative;
+  z-index: 1;
   display: block;
   width: 100%;
   height: 100%;
@@ -49,6 +64,7 @@ canvas {
   width: min(420px, calc(100vw - 24px));
   transform: translateX(-50%);
   pointer-events: none;
+  z-index: 2;
 }
 
 .hud > div {
@@ -90,6 +106,7 @@ strong {
   background:
     linear-gradient(rgba(2, 8, 10, 0.04), rgba(2, 8, 10, 0.28));
   text-align: center;
+  z-index: 3;
 }
 
 .overlay.hidden {
