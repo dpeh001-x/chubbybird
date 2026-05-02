@@ -21,6 +21,11 @@ const TRAIL_CHANCE = isMobileDevice ? 0.32 : 0.55;
 const BASE_SPEED = 430;
 const PACE_CYCLE_SECONDS = 8;
 const HITBOX_RADIUS = 18;
+const GATE_MIN_GAP = 152;
+const GATE_START_GAP = 236;
+const GATE_SCORE_TIGHTEN = 2.25;
+const EARLY_WIDE_GAP_SCORE_LIMIT = 10;
+const EARLY_WIDE_GAP_BONUS = 46;
 const FLAP_LIFT = 355;
 const SUPER_JUMP_LIFT = 560;
 const GRAVITY_BASE = 1160;
@@ -71,6 +76,18 @@ characterImage.src = "assets/chubby-bird-sprites.png";
 const characterStillImage = new Image();
 characterStillImage.decoding = "async";
 characterStillImage.src = "assets/chubby-bird.png?v=hd-character-1";
+const characterActionFrames = Array.from({ length: 16 }, (_, index) => {
+  const image = new Image();
+  image.decoding = "async";
+  image.src = `assets/chubby-bird-action/frame_${String(index).padStart(3, "0")}.png?v=action-sprite-1`;
+  return image;
+});
+const characterAnimations = {
+  idle: [9, 10, 11, 10, 8, 10],
+  flap: [2, 3, 4, 5, 6, 7, 8],
+  dash: [12, 13, 14, 15, 0, 1, 2],
+  super: [3, 4, 5, 6, 7, 8],
+};
 const characterSprite = {
   frameCount: 125,
   cellWidth: 111,
@@ -111,6 +128,9 @@ const state = {
     angle: 0,
     wing: 0,
     invuln: 0,
+    animName: "idle",
+    animStartedAt: 0,
+    animUntil: 0,
   },
 };
 
@@ -157,6 +177,10 @@ function getViewportSize() {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function isImageReady(image) {
+  return image.complete && image.naturalWidth > 0;
 }
 
 function resize() {
@@ -222,9 +246,16 @@ function getPaceSpeed() {
   return BASE_SPEED * getPaceMultiplier() + state.dashBoost;
 }
 
+function getGateGap() {
+  const normalGap = Math.max(GATE_MIN_GAP, GATE_START_GAP - state.score * GATE_SCORE_TIGHTEN);
+  if (state.score >= EARLY_WIDE_GAP_SCORE_LIMIT) return normalGap;
+  const earlyEase = 1 - state.score / EARLY_WIDE_GAP_SCORE_LIMIT;
+  return normalGap + EARLY_WIDE_GAP_BONUS * earlyEase;
+}
+
 function spawnGate() {
   const margin = Math.max(86, state.height * 0.14);
-  const gap = Math.max(152, 236 - state.score * 2.25);
+  const gap = getGateGap();
   const center = margin + Math.random() * (state.height - margin * 2);
   const width = 72;
   const gate = {
@@ -244,6 +275,7 @@ function flap(power = 1, horizontal = 0) {
   bird.y -= 6 * power;
   bird.invuln = Math.max(bird.invuln, 0.12);
   state.dashBoost = Math.max(state.dashBoost, horizontal * 24);
+  triggerCharacterAnimation("flap", 380);
   burst(bird.x - 8, bird.y + 12, 9 + power * 5, "#f7e85f");
   playFlapSound(power);
 }
@@ -256,6 +288,7 @@ function superJump(strength = 1) {
   bird.invuln = Math.max(bird.invuln, 0.2);
   state.shake = Math.max(state.shake, 9);
   state.dashBoost = Math.max(state.dashBoost, 110);
+  triggerCharacterAnimation("super", 520);
   burst(bird.x - 4, bird.y + 18, isMobileDevice ? 22 : 34, "#fff0a8");
   burst(bird.x - 20, bird.y + 28, isMobileDevice ? 14 : 22, "#8ed6ad");
   playDashSound(0.55);
@@ -268,10 +301,19 @@ function dashForward(distance) {
   state.dash = Math.min(1, state.dash + 0.9 + strength * 0.55);
   state.shake = Math.max(state.shake, 7 + strength * 8);
   bird.vy = Math.min(bird.vy, -130) - 90 * strength;
+  triggerCharacterAnimation("dash", 520);
   spawnDashEffects(bird.x - 6, bird.y, strength);
   burst(bird.x - 24, bird.y, 26 + strength * 18, "#8ed6ad");
   burst(bird.x - 38, bird.y + 10, 22, "#d7aa43");
   playDashSound(strength);
+}
+
+function triggerCharacterAnimation(name, durationMs) {
+  const bird = state.bird;
+  const now = performance.now();
+  bird.animName = name;
+  bird.animStartedAt = now;
+  bird.animUntil = now + durationMs;
 }
 
 function spawnDashEffects(x, y, strength) {
@@ -976,11 +1018,53 @@ function drawGapEdgeSpark(gate, glow) {
   ctx.fill();
 }
 
+function getCharacterActionFrame() {
+  const now = performance.now();
+  const activeName = state.bird.animUntil > now ? state.bird.animName : "idle";
+  const frames = characterAnimations[activeName] || characterAnimations.idle;
+  const frameMs = activeName === "idle" ? 170 : 58;
+  const elapsed = activeName === "idle" ? now : now - state.bird.animStartedAt;
+  const rawIndex = Math.floor(elapsed / frameMs);
+  const frameIndex = activeName === "idle" ? rawIndex % frames.length : Math.min(frames.length - 1, rawIndex);
+  const image = characterActionFrames[frames[frameIndex]];
+  return isImageReady(image) ? image : null;
+}
+
 function drawBird() {
   const b = state.bird;
   ctx.save();
   ctx.translate(b.x + state.dash * 14, b.y);
   ctx.rotate(b.angle);
+
+  const actionFrame = getCharacterActionFrame();
+  if (actionFrame) {
+    const ratio = actionFrame.naturalWidth / actionFrame.naturalHeight;
+    const active = b.animUntil > performance.now() ? b.animName : "idle";
+    const flap = Math.sin(b.wing * 1.38);
+    const drawH = 118 + flap * 2 + state.dash * 5 + (active === "super" ? 6 : 0);
+    const drawW = drawH * ratio;
+    const wingBob = flap * 1.4;
+    const flash = b.invuln > 0 && Math.floor(performance.now() / 70) % 2;
+    const stretchX = 1 + state.dash * 0.08 + (active === "dash" ? 0.04 : 0);
+    const stretchY = 1 - state.dash * 0.025 + (active === "super" ? 0.03 : 0);
+
+    ctx.globalAlpha = flash ? 0.82 : 1;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.scale(stretchX, stretchY);
+    if (!isMobileDevice) {
+      ctx.shadowColor = "rgba(4, 10, 12, 0.38)";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = -6;
+      ctx.shadowOffsetY = 8;
+    }
+    ctx.drawImage(actionFrame, -drawW * 0.52, -drawH * 0.58 + wingBob, drawW, drawH);
+    ctx.globalAlpha = 1;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.restore();
+    return;
+  }
 
   if (characterStillImage.complete && characterStillImage.naturalWidth > 0) {
     const ratio = characterStillImage.naturalWidth / characterStillImage.naturalHeight;
