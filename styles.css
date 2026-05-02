@@ -61,12 +61,7 @@ body {
   background:
     radial-gradient(circle at 76% 18%, rgba(255, 240, 168, 0.2) 0 54px, transparent 56px),
     radial-gradient(ellipse at 28% 34%, rgba(142, 214, 173, 0.18) 0 19%, transparent 42%),
-    linear-gradient(180deg, rgba(13, 49, 54, 0.46) 0%, rgba(14, 30, 26, 0.2) 44%, rgba(6, 5, 4, 0.84) 100%),
-    repeating-linear-gradient(
-      100deg,
-      rgba(255, 240, 168, 0.08) 0 2px,
-      transparent 2px 52px
-    );
+    linear-gradient(180deg, rgba(13, 49, 54, 0.46) 0%, rgba(14, 30, 26, 0.2) 44%, rgba(6, 5, 4, 0.84) 100%);
   content: "";
   opacity: 0.82;
   transform: translate3d(0, 0, 0) scale(1.03);
@@ -93,12 +88,11 @@ body {
     radial-gradient(circle at 50% 38%, transparent 0 44%, rgba(0, 0, 0, 0.34) 76%),
     linear-gradient(90deg, rgba(255, 240, 168, 0.05), transparent 20% 80%, rgba(255, 240, 168, 0.05));
   content: "";
-  mix-blend-mode: screen;
+  opacity: 0.82;
 }
 
 .game-shell.mobile-optimized::after {
   opacity: 0.62;
-  mix-blend-mode: normal;
 }
 
 .background-video {
@@ -126,6 +120,15 @@ body {
 
 .game-shell.mobile-optimized.game-active.video-ready .background-video {
   opacity: 0.12;
+}
+
+.game-shell.performance-saver .background-video {
+  opacity: 0;
+}
+
+.game-shell.performance-saver::before {
+  animation: none;
+  opacity: 0.54;
 }
 
 canvas {

@@ -23,11 +23,11 @@ const isMobileDevice =
   Boolean(coarsePointerQuery && coarsePointerQuery.matches) ||
   /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const DPR_LIMIT = isMobileDevice ? 1 : 1.5;
-const MAX_PARTICLES = isMobileDevice ? 34 : 120;
-const MAX_DASH_EFFECTS = isMobileDevice ? 32 : 120;
+const MAX_PARTICLES = isMobileDevice ? 22 : 80;
+const MAX_DASH_EFFECTS = isMobileDevice ? 20 : 72;
 const PHYSICS_STEP = 1 / 60;
 const MAX_FRAME_DELTA = isMobileDevice ? 0.045 : 0.04;
-const TRAIL_CHANCE = isMobileDevice ? 0.18 : 0.55;
+const TRAIL_CHANCE = isMobileDevice ? 0.08 : 0.32;
 const BASE_SPEED = 430;
 const PACE_CYCLE_SECONDS = 8;
 const HITBOX_RADIUS = 18;
@@ -46,7 +46,7 @@ const playerNameKey = "chubbybird-player-name";
 const playerIdKey = "chubbybird-player-id";
 const localLeaderboardKeyPrefix = "chubbybird-weekly-scores:";
 const leaderboardLimit = 20;
-const BACKGROUND_VIDEO_RATE = isMobileDevice ? 0.55 : 0.8;
+const BACKGROUND_VIDEO_RATE = isMobileDevice ? 0.45 : 0.72;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 const IDLE_RENDER_INTERVAL = isMobileDevice ? 1 / 24 : 1 / 45;
 const requestIdle =
@@ -60,9 +60,9 @@ backgroundVideo.className = "background-video";
 backgroundVideo.muted = true;
 backgroundVideo.defaultMuted = true;
 backgroundVideo.loop = true;
-backgroundVideo.autoplay = true;
+backgroundVideo.autoplay = !isMobileDevice;
 backgroundVideo.playsInline = true;
-backgroundVideo.preload = isMobileDevice ? "metadata" : "auto";
+backgroundVideo.preload = isMobileDevice ? "none" : "metadata";
 backgroundVideo.playbackRate = BACKGROUND_VIDEO_RATE;
 backgroundVideo.disablePictureInPicture = true;
 backgroundVideo.setAttribute("muted", "");
@@ -169,6 +169,8 @@ const state = {
   clouds: [],
   stars: [],
   ridges: [],
+  performanceStress: 0,
+  performanceSaver: false,
   bird: {
     x: 0,
     y: 0,
@@ -640,9 +642,8 @@ function triggerCharacterAnimation(name, durationMs) {
 
 function spawnDashEffects(x, y, strength) {
   const comicWords = ["WHOOSH", "ZIP!", "DASH!"];
-  const slashCount = isMobileDevice ? 4 : 9;
-  const starCount = isMobileDevice ? 2 : 5;
-  const shardCount = isMobileDevice ? 5 : 15;
+  const starCount = state.performanceSaver ? 1 : isMobileDevice ? 2 : 3;
+  const shardCount = state.performanceSaver ? 2 : isMobileDevice ? 3 : 8;
   state.dashEffects.push({
     type: "ring",
     x,
@@ -652,14 +653,6 @@ function spawnDashEffects(x, y, strength) {
     radius: 26,
     maxRadius: 96 + strength * 46,
     color: "#8ed6ad",
-  });
-  state.dashEffects.push({
-    type: "flash",
-    x,
-    y,
-    age: 0,
-    life: 0.2,
-    strength,
   });
   state.dashEffects.push({
     type: "comicBurst",
@@ -672,7 +665,7 @@ function spawnDashEffects(x, y, strength) {
     spikes: isMobileDevice ? 11 : 15,
     rotation: -0.15 + Math.random() * 0.3,
   });
-  if (!isMobileDevice) {
+  if (!isMobileDevice && !state.performanceSaver) {
     state.dashEffects.push({
       type: "halftone",
       x: x - 18,
@@ -694,20 +687,6 @@ function spawnDashEffects(x, y, strength) {
     size: isMobileDevice ? 18 + strength * 4 : 24 + strength * 8,
     rotation: -0.12 + Math.random() * 0.08,
   });
-
-  for (let i = 0; i < slashCount; i += 1) {
-    state.dashEffects.push({
-      type: "slash",
-      x: x - 12 - Math.random() * 26,
-      y: y - 38 + i * 10 + Math.random() * 8,
-      age: 0,
-      life: 0.24 + Math.random() * 0.14,
-      length: 92 + Math.random() * 92 + strength * 44,
-      width: 4 + Math.random() * 5,
-      drift: 360 + Math.random() * 260,
-      color: i % 2 ? "#d7aa43" : "#8ed6ad",
-    });
-  }
 
   for (let i = 0; i < starCount; i += 1) {
     state.dashEffects.push({
@@ -742,7 +721,8 @@ function spawnDashEffects(x, y, strength) {
 
 function burst(x, y, count, color) {
   const available = Math.max(0, MAX_PARTICLES - state.particles.length);
-  const amount = Math.min(Math.ceil(count * (isMobileDevice ? 0.62 : 1)), available);
+  const effectScale = state.performanceSaver ? 0.28 : isMobileDevice ? 0.42 : 0.72;
+  const amount = Math.min(Math.ceil(count * effectScale), available);
   for (let i = 0; i < amount; i += 1) {
     state.particles.push({
       x,
@@ -910,7 +890,19 @@ function step(now) {
     }
   }
   recordAuditFrame(now, frameDelta, drew);
+  updatePerformanceMode(frameDelta);
   requestAnimationFrame(step);
+}
+
+function updatePerformanceMode(frameDelta) {
+  if (!isMobileDevice || !state.running || frameDelta <= 0) return;
+  const stressDelta = frameDelta > 0.034 ? 1.8 : -0.32;
+  state.performanceStress = clamp(state.performanceStress + stressDelta, 0, 12);
+  if (!state.performanceSaver && state.performanceStress >= 6) {
+    state.performanceSaver = true;
+    shell.classList.add("performance-saver");
+    backgroundVideo.pause();
+  }
 }
 
 function update(dt) {
@@ -979,9 +971,6 @@ function update(dt) {
 
   for (const effect of state.dashEffects) {
     effect.age += dt;
-    if (effect.type === "slash") {
-      effect.x -= effect.drift * dt;
-    }
     if (effect.type === "shard") {
       effect.x += effect.vx * dt;
       effect.y += effect.vy * dt;
@@ -1030,31 +1019,12 @@ function draw(now = performance.now()) {
   ctx.save();
   ctx.translate(shakeX, shakeY);
   drawBackground();
-  drawDashFlash();
-  drawSpeedLines(now);
   drawGates();
   drawDashEffects();
   drawParticles();
   drawBird(now);
   drawForeground(now);
   ctx.restore();
-}
-
-function drawDashFlash() {
-  const flash = state.dashEffects.find((effect) => effect.type === "flash");
-  if (!flash) return;
-  const t = 1 - flash.age / flash.life;
-  ctx.fillStyle = `rgba(142, 214, 173, ${0.08 * t})`;
-  ctx.fillRect(0, 0, state.width, state.height);
-
-  ctx.fillStyle = `rgba(255, 240, 168, ${0.1 * t})`;
-  ctx.beginPath();
-  ctx.moveTo(0, state.bird.y - 54);
-  ctx.lineTo(state.width, state.bird.y - 6);
-  ctx.lineTo(state.width, state.bird.y + 36);
-  ctx.lineTo(0, state.bird.y + 12);
-  ctx.closePath();
-  ctx.fill();
 }
 
 function drawBackground() {}
@@ -1106,6 +1076,7 @@ function drawGeneratedBackground() {
 }
 
 function startBackgroundVideo() {
+  if (state.performanceSaver && state.running) return;
   backgroundVideo.muted = true;
   backgroundVideo.defaultMuted = true;
   backgroundVideo.playbackRate = BACKGROUND_VIDEO_RATE;
@@ -1258,23 +1229,6 @@ function drawRidges(now = performance.now()) {
     ctx.lineTo(state.width, state.height);
     ctx.closePath();
     ctx.fill();
-  }
-}
-
-function drawSpeedLines(now = performance.now()) {
-  const pace = Math.max(0, getPaceMultiplier() - 1) * 1.4 + state.dash * 0.65;
-  const lineCount = isMobileDevice ? (state.running ? 11 : 6) : (state.running ? 18 : 10);
-  ctx.lineCap = "round";
-  for (let i = 0; i < lineCount; i += 1) {
-    const y = (i * 83 + now * (0.24 + pace * 0.18)) % state.height;
-    const x = (i * 137 + now * -(0.46 + pace * 0.36)) % (state.width + 220);
-    const len = 42 + pace * 90 + (i % 4) * 10;
-    ctx.strokeStyle = i % 3 === 0 ? "rgba(255, 240, 168, 0.2)" : "rgba(142, 214, 173, 0.14)";
-    ctx.lineWidth = 1.2 + pace * 1.8;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x - len, y + 10);
-    ctx.stroke();
   }
 }
 
@@ -1742,24 +1696,6 @@ function drawDashEffects() {
       ctx.lineWidth = 5;
       ctx.beginPath();
       ctx.ellipse(effect.x, effect.y, radius * 1.2, radius * 0.52, -0.08, 0, Math.PI * 2);
-      ctx.stroke();
-      continue;
-    }
-
-    if (effect.type === "slash") {
-      ctx.globalAlpha = t;
-      ctx.lineCap = "round";
-      ctx.strokeStyle = "#071013";
-      ctx.lineWidth = effect.width + 5;
-      ctx.beginPath();
-      ctx.moveTo(effect.x + effect.length * 0.14, effect.y - 9);
-      ctx.lineTo(effect.x - effect.length, effect.y + 12);
-      ctx.stroke();
-      ctx.strokeStyle = effect.color;
-      ctx.lineWidth = effect.width;
-      ctx.beginPath();
-      ctx.moveTo(effect.x, effect.y);
-      ctx.lineTo(effect.x - effect.length, effect.y + 18);
       ctx.stroke();
       continue;
     }
@@ -2313,7 +2249,11 @@ startButton.addEventListener("click", resetGame);
 
 setupLeaderboard();
 resize();
-startBackgroundVideo();
+if (isMobileDevice) {
+  requestIdle(startBackgroundVideo);
+} else {
+  startBackgroundVideo();
+}
 queueActionFrameWarmup();
 loadLeaderboard();
 requestAnimationFrame(step);
