@@ -47,6 +47,7 @@ const playerIdKey = "chubbybird-player-id";
 const localLeaderboardKeyPrefix = "chubbybird-weekly-scores:";
 const leaderboardLimit = 20;
 const BACKGROUND_VIDEO_RATE = isMobileDevice ? 0.45 : 0.72;
+const BGM_VOLUME = isMobileDevice ? 0.24 : 0.28;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 const IDLE_RENDER_INTERVAL = isMobileDevice ? 1 / 24 : 1 / 45;
 const requestIdle =
@@ -78,6 +79,12 @@ backgroundVideo.addEventListener("playing", markBackgroundVideoReady);
 backgroundVideo.addEventListener("error", markBackgroundVideoFallback);
 shell.prepend(backgroundVideo);
 let backgroundFallbackTimer = null;
+const bgmAudio = document.createElement("audio");
+bgmAudio.src = "assets/main-bgm.mpeg?v=bgm-1";
+bgmAudio.loop = true;
+bgmAudio.preload = "metadata";
+bgmAudio.volume = BGM_VOLUME;
+bgmAudio.setAttribute("playsinline", "");
 const audio = {
   ctx: null,
   master: null,
@@ -522,6 +529,7 @@ function resize() {
 
 function resetGame() {
   unlockAudio();
+  startBgm({ restart: true });
   startBackgroundVideo();
   if (!auditAutoplay) playStartSound();
   shell.classList.add("game-active");
@@ -795,6 +803,7 @@ function crash() {
   if (state.bird.invuln > 0 || state.crashed) return;
   state.crashed = true;
   state.running = false;
+  pauseBgm();
   shell.classList.remove("game-active");
   state.needsDraw = true;
   state.shake = 20;
@@ -1118,6 +1127,26 @@ function markBackgroundVideoReady() {
 
 function markBackgroundVideoFallback() {
   shell.classList.add("video-fallback");
+}
+
+function startBgm(options = {}) {
+  if (auditAutoplay) return;
+  bgmAudio.volume = BGM_VOLUME;
+  if (options.restart) {
+    try {
+      bgmAudio.currentTime = 0;
+    } catch {
+      // Some browsers only allow seeking once metadata is ready.
+    }
+  }
+  const play = bgmAudio.play();
+  if (play && typeof play.catch === "function") {
+    play.catch(() => {});
+  }
+}
+
+function pauseBgm() {
+  bgmAudio.pause();
 }
 
 function resumeAudio() {
@@ -2103,6 +2132,7 @@ function preventEventDefault(event) {
 
 function beginGestureAt(x, y) {
   unlockAudio();
+  if (state.running && !state.crashed) startBgm();
   startBackgroundVideo();
   const wasRunning = state.running;
   if (!state.running && overlay.classList.contains("hidden")) resetGame();
@@ -2220,8 +2250,10 @@ function handleVisibilityChange() {
   state.needsDraw = true;
   if (document.hidden) {
     backgroundVideo.pause();
+    pauseBgm();
   } else {
     startBackgroundVideo();
+    if (state.running && !state.crashed) startBgm();
   }
 }
 
@@ -2257,6 +2289,7 @@ if (window.PointerEvent) {
 }
 window.addEventListener("keydown", (event) => {
   unlockAudio();
+  if (state.running && !state.crashed) startBgm();
   startBackgroundVideo();
   if (event.code === "Space" || event.code === "ArrowUp") {
     event.preventDefault();
