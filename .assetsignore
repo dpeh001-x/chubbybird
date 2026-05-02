@@ -1,6 +1,8 @@
 .git/
 .github/
+.wrangler/
 .assetsignore
+.gitignore
 worker.mjs
 wrangler.jsonc
 node_modules/

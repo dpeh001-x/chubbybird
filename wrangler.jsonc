@@ -6,6 +6,12 @@
   "observability": {
     "enabled": true
   },
+  "routes": [
+    {
+      "pattern": "moji-studios.com/chubbybird/api/*",
+      "zone_name": "moji-studios.com"
+    }
+  ],
   "assets": {
     "directory": ".",
     "binding": "ASSETS",

@@ -1,5 +1,5 @@
-# wrangler files
-.wrangler
+# Wrangler files
+.wrangler/
 .dev.vars*
 !.dev.vars.example
 .env*
