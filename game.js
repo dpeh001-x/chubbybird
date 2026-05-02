@@ -12,15 +12,16 @@ const coarsePointerQuery =
 const isMobileDevice =
   Boolean(coarsePointerQuery && coarsePointerQuery.matches) ||
   /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-const DPR_LIMIT = isMobileDevice ? 1.25 : 1.5;
-const MAX_PARTICLES = isMobileDevice ? 58 : 120;
-const MAX_DASH_EFFECTS = isMobileDevice ? 60 : 120;
+const DPR_LIMIT = isMobileDevice ? 1 : 1.5;
+const MAX_PARTICLES = isMobileDevice ? 34 : 120;
+const MAX_DASH_EFFECTS = isMobileDevice ? 32 : 120;
 const PHYSICS_STEP = 1 / 60;
 const MAX_FRAME_DELTA = isMobileDevice ? 0.045 : 0.04;
-const TRAIL_CHANCE = isMobileDevice ? 0.32 : 0.55;
+const TRAIL_CHANCE = isMobileDevice ? 0.18 : 0.55;
 const BASE_SPEED = 430;
 const PACE_CYCLE_SECONDS = 8;
 const HITBOX_RADIUS = 18;
+const MOBILE_ACTION_FRAME_HEIGHT = 144;
 const GATE_MIN_GAP = 152;
 const GATE_START_GAP = 236;
 const GATE_SCORE_TIGHTEN = 2.25;
@@ -31,8 +32,9 @@ const SUPER_JUMP_LIFT = 560;
 const GRAVITY_BASE = 1160;
 const GRAVITY_SPEED_SCALE = 0.22;
 const bestKey = "rushwing-best";
-const BACKGROUND_VIDEO_RATE = 0.8;
+const BACKGROUND_VIDEO_RATE = isMobileDevice ? 0.55 : 0.8;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+shell.classList.toggle("mobile-optimized", isMobileDevice);
 const backgroundVideo = document.createElement("video");
 backgroundVideo.src = "assets/animated-background.mp4?v=retro-bg-1";
 backgroundVideo.className = "background-video";
@@ -88,6 +90,7 @@ const characterAnimations = {
   dash: [12, 13, 14, 15, 0, 1, 2],
   super: [3, 4, 5, 6, 7, 8],
 };
+const optimizedActionFrames = new WeakMap();
 const characterSprite = {
   frameCount: 125,
   cellWidth: 111,
@@ -180,7 +183,34 @@ function clamp(value, min, max) {
 }
 
 function isImageReady(image) {
-  return image.complete && image.naturalWidth > 0;
+  return Boolean(image && image.complete && image.naturalWidth > 0);
+}
+
+function getDrawableWidth(drawable) {
+  return drawable.naturalWidth || drawable.width || 0;
+}
+
+function getDrawableHeight(drawable) {
+  return drawable.naturalHeight || drawable.height || 0;
+}
+
+function getOptimizedActionFrame(image) {
+  if (!isMobileDevice || !isImageReady(image)) return image;
+  const cached = optimizedActionFrames.get(image);
+  if (cached) return cached;
+
+  const ratio = image.naturalWidth / image.naturalHeight;
+  const canvasFrame = document.createElement("canvas");
+  canvasFrame.height = MOBILE_ACTION_FRAME_HEIGHT;
+  canvasFrame.width = Math.ceil(MOBILE_ACTION_FRAME_HEIGHT * ratio);
+  const frameCtx = canvasFrame.getContext("2d", { alpha: true });
+  if (!frameCtx) return image;
+  frameCtx.imageSmoothingEnabled = true;
+  frameCtx.imageSmoothingQuality = "medium";
+  frameCtx.clearRect(0, 0, canvasFrame.width, canvasFrame.height);
+  frameCtx.drawImage(image, 0, 0, canvasFrame.width, canvasFrame.height);
+  optimizedActionFrames.set(image, canvasFrame);
+  return canvasFrame;
 }
 
 function resize() {
@@ -196,7 +226,7 @@ function resize() {
   canvas.style.height = `${state.height}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
+  ctx.imageSmoothingQuality = isMobileDevice ? "medium" : "high";
   state.bird.x = Math.max(92, state.width * 0.2);
   state.bird.y = clamp(state.bird.y || state.height * 0.42, HITBOX_RADIUS + 8, getFloorSurfaceY() - HITBOX_RADIUS - 8);
 }
@@ -204,6 +234,7 @@ function resize() {
 function resetGame() {
   startBackgroundVideo();
   playStartSound();
+  shell.classList.add("game-active");
   state.running = true;
   state.crashed = false;
   state.lastTime = performance.now();
@@ -318,9 +349,9 @@ function triggerCharacterAnimation(name, durationMs) {
 
 function spawnDashEffects(x, y, strength) {
   const comicWords = ["WHOOSH", "ZIP!", "DASH!"];
-  const slashCount = isMobileDevice ? 6 : 9;
-  const starCount = isMobileDevice ? 3 : 5;
-  const shardCount = isMobileDevice ? 9 : 15;
+  const slashCount = isMobileDevice ? 4 : 9;
+  const starCount = isMobileDevice ? 2 : 5;
+  const shardCount = isMobileDevice ? 5 : 15;
   state.dashEffects.push({
     type: "ring",
     x,
@@ -347,17 +378,19 @@ function spawnDashEffects(x, y, strength) {
     life: 0.34,
     radius: 22,
     maxRadius: 112 + strength * 34,
-    spikes: 15,
+    spikes: isMobileDevice ? 11 : 15,
     rotation: -0.15 + Math.random() * 0.3,
   });
-  state.dashEffects.push({
-    type: "halftone",
-    x: x - 18,
-    y: y + 2,
-    age: 0,
-    life: 0.32,
-    radius: 112 + strength * 46,
-  });
+  if (!isMobileDevice) {
+    state.dashEffects.push({
+      type: "halftone",
+      x: x - 18,
+      y: y + 2,
+      age: 0,
+      life: 0.32,
+      radius: 112 + strength * 46,
+    });
+  }
   state.dashEffects.push({
     type: "comicText",
     text: comicWords[Math.floor(Math.random() * comicWords.length)],
@@ -366,8 +399,8 @@ function spawnDashEffects(x, y, strength) {
     vx: -390 - strength * 160,
     vy: -30 - strength * 20,
     age: 0,
-    life: 0.42,
-    size: 24 + strength * 8,
+    life: isMobileDevice ? 0.3 : 0.42,
+    size: isMobileDevice ? 18 + strength * 4 : 24 + strength * 8,
     rotation: -0.12 + Math.random() * 0.08,
   });
 
@@ -418,7 +451,7 @@ function spawnDashEffects(x, y, strength) {
 
 function burst(x, y, count, color) {
   const available = Math.max(0, MAX_PARTICLES - state.particles.length);
-  const amount = Math.min(count, available);
+  const amount = Math.min(Math.ceil(count * (isMobileDevice ? 0.62 : 1)), available);
   for (let i = 0; i < amount; i += 1) {
     state.particles.push({
       x,
@@ -489,6 +522,7 @@ function crash() {
   if (state.bird.invuln > 0 || state.crashed) return;
   state.crashed = true;
   state.running = false;
+  shell.classList.remove("game-active");
   state.shake = 20;
   burst(state.bird.x, state.bird.y, 38, "#ff6c51");
   playCrashSound();
@@ -874,11 +908,13 @@ function drawSpeedLines() {
 
 function drawGates() {
   for (const gate of state.gates) {
-    const glow = 0.5 + Math.sin(gate.pulse) * 0.5;
+    const glow = isMobileDevice ? 0.42 : 0.5 + Math.sin(gate.pulse) * 0.5;
     ctx.save();
     drawPillarSegment(gate, true, glow);
     drawPillarSegment(gate, false, glow);
-    drawGapEdgeSpark(gate, glow);
+    if (!isMobileDevice) {
+      drawGapEdgeSpark(gate, glow);
+    }
     ctx.restore();
   }
 }
@@ -927,13 +963,13 @@ function drawPillarBody(x, y, w, h, top) {
   ctx.lineTo(x + 15, y + h - 18);
   ctx.stroke();
 
-  if (h > 84) {
+  if (!isMobileDevice && h > 84) {
     drawPillarFeatherAccent(x + w * 0.58, top ? y + h - 74 : y + 54, top ? -0.28 : 0.28);
   }
 }
 
 function drawPillarBands(x, y, w, h, top) {
-  const bandGap = 64;
+  const bandGap = isMobileDevice ? 92 : 64;
   const start = top ? y + 36 : y + 24;
   const end = y + h - 28;
   for (let bandY = start; bandY < end; bandY += bandGap) {
@@ -1027,7 +1063,7 @@ function getCharacterActionFrame() {
   const rawIndex = Math.floor(elapsed / frameMs);
   const frameIndex = activeName === "idle" ? rawIndex % frames.length : Math.min(frames.length - 1, rawIndex);
   const image = characterActionFrames[frames[frameIndex]];
-  return isImageReady(image) ? image : null;
+  return isImageReady(image) ? getOptimizedActionFrame(image) : null;
 }
 
 function drawBird() {
@@ -1038,7 +1074,7 @@ function drawBird() {
 
   const actionFrame = getCharacterActionFrame();
   if (actionFrame) {
-    const ratio = actionFrame.naturalWidth / actionFrame.naturalHeight;
+    const ratio = getDrawableWidth(actionFrame) / getDrawableHeight(actionFrame);
     const active = b.animUntil > performance.now() ? b.animName : "idle";
     const flap = Math.sin(b.wing * 1.38);
     const drawH = 118 + flap * 2 + state.dash * 5 + (active === "super" ? 6 : 0);
@@ -1050,7 +1086,7 @@ function drawBird() {
 
     ctx.globalAlpha = flash ? 0.82 : 1;
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
+    ctx.imageSmoothingQuality = isMobileDevice ? "medium" : "high";
     ctx.scale(stretchX, stretchY);
     if (!isMobileDevice) {
       ctx.shadowColor = "rgba(4, 10, 12, 0.38)";

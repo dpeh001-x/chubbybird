@@ -79,6 +79,11 @@ body {
   animation-play-state: paused;
 }
 
+.game-shell.mobile-optimized::before {
+  opacity: 0.66;
+  animation-duration: 36s;
+}
+
 .game-shell::after {
   position: absolute;
   inset: 0;
@@ -89,6 +94,11 @@ body {
     linear-gradient(90deg, rgba(255, 240, 168, 0.05), transparent 20% 80%, rgba(255, 240, 168, 0.05));
   content: "";
   mix-blend-mode: screen;
+}
+
+.game-shell.mobile-optimized::after {
+  opacity: 0.62;
+  mix-blend-mode: normal;
 }
 
 .background-video {
@@ -108,6 +118,14 @@ body {
 
 .game-shell.video-ready .background-video {
   opacity: 0.22;
+}
+
+.game-shell.mobile-optimized.video-ready .background-video {
+  opacity: 0.16;
+}
+
+.game-shell.mobile-optimized.game-active.video-ready .background-video {
+  opacity: 0.12;
 }
 
 canvas {
