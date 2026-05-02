@@ -1,0 +1,8 @@
+.git/
+.github/
+.assetsignore
+worker.mjs
+wrangler.jsonc
+node_modules/
+package-lock.json
+package.json
