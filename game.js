@@ -47,6 +47,7 @@ const playerIdKey = "chubbybird-player-id";
 const localLeaderboardKeyPrefix = "chubbybird-weekly-scores:";
 const leaderboardLimit = 20;
 const BACKGROUND_VIDEO_RATE = isMobileDevice ? 0.45 : 0.72;
+const BGM_VOLUME = isMobileDevice ? 0.24 : 0.28;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 const IDLE_RENDER_INTERVAL = isMobileDevice ? 1 / 24 : 1 / 45;
 const requestIdle =
@@ -78,9 +79,16 @@ backgroundVideo.addEventListener("playing", markBackgroundVideoReady);
 backgroundVideo.addEventListener("error", markBackgroundVideoFallback);
 shell.prepend(backgroundVideo);
 let backgroundFallbackTimer = null;
+const bgmAudio = document.createElement("audio");
+bgmAudio.src = "assets/main-bgm.mpeg?v=bgm-1";
+bgmAudio.loop = true;
+bgmAudio.preload = "metadata";
+bgmAudio.volume = BGM_VOLUME;
+bgmAudio.setAttribute("playsinline", "");
 const audio = {
   ctx: null,
   master: null,
+  unlocked: false,
 };
 const audit = {
   startedAt: 0,
@@ -520,6 +528,8 @@ function resize() {
 }
 
 function resetGame() {
+  unlockAudio();
+  startBgm({ restart: true });
   startBackgroundVideo();
   if (!auditAutoplay) playStartSound();
   shell.classList.add("game-active");
@@ -793,6 +803,7 @@ function crash() {
   if (state.bird.invuln > 0 || state.crashed) return;
   state.crashed = true;
   state.running = false;
+  pauseBgm();
   shell.classList.remove("game-active");
   state.needsDraw = true;
   state.shake = 20;
@@ -1118,18 +1129,56 @@ function markBackgroundVideoFallback() {
   shell.classList.add("video-fallback");
 }
 
+function startBgm(options = {}) {
+  if (auditAutoplay) return;
+  bgmAudio.volume = BGM_VOLUME;
+  if (options.restart) {
+    try {
+      bgmAudio.currentTime = 0;
+    } catch {
+      // Some browsers only allow seeking once metadata is ready.
+    }
+  }
+  const play = bgmAudio.play();
+  if (play && typeof play.catch === "function") {
+    play.catch(() => {});
+  }
+}
+
+function pauseBgm() {
+  bgmAudio.pause();
+}
+
 function resumeAudio() {
   if (!AudioContextCtor) return null;
   if (!audio.ctx) {
     audio.ctx = new AudioContextCtor();
     audio.master = audio.ctx.createGain();
-    audio.master.gain.value = 0.18;
+    audio.master.gain.value = 0.26;
     audio.master.connect(audio.ctx.destination);
   }
   if (audio.ctx.state === "suspended") {
     audio.ctx.resume().catch(() => {});
   }
   return audio.ctx;
+}
+
+function unlockAudio() {
+  const audioCtx = resumeAudio();
+  if (!audioCtx || audio.unlocked) return;
+  try {
+    const source = audioCtx.createBufferSource();
+    const gain = audioCtx.createGain();
+    source.buffer = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+    gain.gain.value = 0;
+    source.connect(gain);
+    gain.connect(audio.master);
+    source.start();
+    source.stop(audioCtx.currentTime + 0.01);
+    audio.unlocked = true;
+  } catch {
+    audio.unlocked = false;
+  }
 }
 
 function playTone(type, startFreq, endFreq, duration, volume, delay = 0) {
@@ -1151,7 +1200,7 @@ function playTone(type, startFreq, endFreq, duration, volume, delay = 0) {
   oscillator.stop(start + duration + 0.02);
 }
 
-function playNoise(duration, volume, delay = 0) {
+function playNoise(duration, volume, delay = 0, startFreq = 900, endFreq = 180, filterType = "bandpass") {
   const audioCtx = resumeAudio();
   if (!audioCtx) return;
 
@@ -1166,9 +1215,10 @@ function playNoise(duration, volume, delay = 0) {
   const source = audioCtx.createBufferSource();
   const filter = audioCtx.createBiquadFilter();
   const gain = audioCtx.createGain();
-  filter.type = "bandpass";
-  filter.frequency.setValueAtTime(900, start);
-  filter.frequency.exponentialRampToValueAtTime(180, start + duration);
+  filter.type = filterType;
+  filter.frequency.setValueAtTime(Math.max(1, startFreq), start);
+  filter.frequency.exponentialRampToValueAtTime(Math.max(1, endFreq), start + duration);
+  filter.Q.setValueAtTime(filterType === "bandpass" ? 1.4 : 0.8, start);
   gain.gain.setValueAtTime(volume, start);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
   source.buffer = buffer;
@@ -1181,31 +1231,41 @@ function playNoise(duration, volume, delay = 0) {
 
 function playStartSound() {
   if (auditAutoplay) return;
-  playTone("square", 420, 620, 0.06, 0.045);
-  playTone("square", 620, 880, 0.08, 0.05, 0.07);
+  unlockAudio();
+  playTone("triangle", 420, 650, 0.06, 0.055);
+  playTone("square", 650, 980, 0.08, 0.045, 0.06);
+  playTone("triangle", 980, 1240, 0.06, 0.032, 0.12);
 }
 
 function playFlapSound(power) {
   if (auditAutoplay) return;
   const lift = Math.min(1.6, power);
-  playTone("square", 520 + lift * 55, 780 + lift * 110, 0.075, 0.045);
+  unlockAudio();
+  playTone("triangle", 660 + lift * 45, 980 + lift * 130, 0.055, 0.058);
+  playTone("square", 1040 + lift * 80, 720 + lift * 70, 0.045, 0.026, 0.018);
+  playNoise(0.035, 0.022, 0.005, 2200, 1150);
 }
 
 function playDashSound(strength) {
   if (auditAutoplay) return;
-  playTone("sawtooth", 180 + strength * 80, 70, 0.16, 0.075);
-  playTone("square", 860, 520, 0.1, 0.035, 0.025);
-  playNoise(0.13, 0.05);
+  const boost = Math.max(0.25, Math.min(1, strength));
+  unlockAudio();
+  playNoise(0.2, 0.11 + boost * 0.025, 0, 2600, 240);
+  playTone("sawtooth", 260 + boost * 140, 58, 0.18, 0.082);
+  playTone("square", 1120, 620, 0.07, 0.048, 0.018);
+  playTone("triangle", 1460, 920, 0.055, 0.035, 0.08);
 }
 
 function playScoreSound() {
   if (auditAutoplay) return;
+  unlockAudio();
   playTone("square", 680, 920, 0.07, 0.04);
   playTone("square", 920, 1220, 0.08, 0.04, 0.07);
 }
 
 function playCrashSound() {
   if (auditAutoplay) return;
+  unlockAudio();
   playTone("sawtooth", 170, 45, 0.28, 0.075);
   playNoise(0.22, 0.08);
 }
@@ -2071,6 +2131,8 @@ function preventEventDefault(event) {
 }
 
 function beginGestureAt(x, y) {
+  unlockAudio();
+  if (state.running && !state.crashed) startBgm();
   startBackgroundVideo();
   const wasRunning = state.running;
   if (!state.running && overlay.classList.contains("hidden")) resetGame();
@@ -2188,8 +2250,10 @@ function handleVisibilityChange() {
   state.needsDraw = true;
   if (document.hidden) {
     backgroundVideo.pause();
+    pauseBgm();
   } else {
     startBackgroundVideo();
+    if (state.running && !state.crashed) startBgm();
   }
 }
 
@@ -2204,8 +2268,11 @@ window.addEventListener("orientationchange", () => {
   window.setTimeout(scheduleResize, 240);
 });
 window.addEventListener("pointerdown", startBackgroundVideo, { passive: true });
+window.addEventListener("pointerdown", unlockAudio, { passive: true });
 window.addEventListener("touchstart", startBackgroundVideo, { passive: true });
+window.addEventListener("touchstart", unlockAudio, { passive: true });
 window.addEventListener("click", startBackgroundVideo, { passive: true });
+window.addEventListener("click", unlockAudio, { passive: true });
 window.addEventListener("touchmove", preventTouchScroll, { passive: false });
 canvas.addEventListener("contextmenu", preventTouchScroll);
 if (window.PointerEvent) {
@@ -2221,6 +2288,8 @@ if (window.PointerEvent) {
   canvas.addEventListener("mouseup", onEnd);
 }
 window.addEventListener("keydown", (event) => {
+  unlockAudio();
+  if (state.running && !state.crashed) startBgm();
   startBackgroundVideo();
   if (event.code === "Space" || event.code === "ArrowUp") {
     event.preventDefault();
