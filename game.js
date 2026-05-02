@@ -6,6 +6,9 @@ const bestEl = document.querySelector("#best");
 const paceEl = document.querySelector("#pace");
 const overlay = document.querySelector("#overlay");
 const startButton = document.querySelector("#startButton");
+const queryParams = new URLSearchParams(window.location.search);
+const auditMode = queryParams.has("audit");
+const auditAutoplay = auditMode && queryParams.has("autoplay");
 
 const coarsePointerQuery =
   typeof window.matchMedia === "function" ? window.matchMedia("(pointer: coarse)") : null;
@@ -34,6 +37,11 @@ const GRAVITY_SPEED_SCALE = 0.22;
 const bestKey = "rushwing-best";
 const BACKGROUND_VIDEO_RATE = isMobileDevice ? 0.55 : 0.8;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+const IDLE_RENDER_INTERVAL = isMobileDevice ? 1 / 24 : 1 / 45;
+const requestIdle =
+  typeof window.requestIdleCallback === "function"
+    ? (callback) => window.requestIdleCallback(callback, { timeout: 1200 })
+    : (callback) => window.setTimeout(callback, 32);
 shell.classList.toggle("mobile-optimized", isMobileDevice);
 const backgroundVideo = document.createElement("video");
 backgroundVideo.src = "assets/animated-background.mp4?v=retro-bg-1";
@@ -43,7 +51,7 @@ backgroundVideo.defaultMuted = true;
 backgroundVideo.loop = true;
 backgroundVideo.autoplay = true;
 backgroundVideo.playsInline = true;
-backgroundVideo.preload = "auto";
+backgroundVideo.preload = isMobileDevice ? "metadata" : "auto";
 backgroundVideo.playbackRate = BACKGROUND_VIDEO_RATE;
 backgroundVideo.disablePictureInPicture = true;
 backgroundVideo.setAttribute("muted", "");
@@ -63,6 +71,15 @@ const audio = {
   ctx: null,
   master: null,
 };
+const audit = {
+  startedAt: 0,
+  lastLogAt: 0,
+  frames: 0,
+  drawnFrames: 0,
+  runningFrames: 0,
+  longFrames: 0,
+  maxFrameMs: 0,
+};
 const floorArt = {
   topTile: document.createElement("canvas"),
   bodyTile: document.createElement("canvas"),
@@ -74,7 +91,9 @@ const floorArt = {
 };
 const characterImage = new Image();
 characterImage.decoding = "async";
-characterImage.src = "assets/chubby-bird-sprites.png";
+if (!isMobileDevice) {
+  characterImage.src = "assets/chubby-bird-sprites.png";
+}
 const characterStillImage = new Image();
 characterStillImage.decoding = "async";
 characterStillImage.src = "assets/chubby-bird.png?v=hd-character-1";
@@ -82,6 +101,10 @@ const characterActionFrames = Array.from({ length: 16 }, (_, index) => {
   const image = new Image();
   image.decoding = "async";
   image.src = `assets/chubby-bird-action/frame_${String(index).padStart(3, "0")}.png?v=action-sprite-1`;
+  image.addEventListener("load", queueActionFrameWarmup, { once: true });
+  if (typeof image.decode === "function") {
+    image.decode().then(queueActionFrameWarmup).catch(() => {});
+  }
   return image;
 });
 const characterAnimations = {
@@ -101,9 +124,12 @@ const characterSprite = {
 const state = {
   width: 0,
   height: 0,
+  dpr: 0,
   running: false,
   crashed: false,
   lastTime: 0,
+  idleDrawTimer: 0,
+  needsDraw: true,
   score: 0,
   best: loadBestScore(),
   speed: BASE_SPEED,
@@ -117,6 +143,8 @@ const state = {
   activePointerId: null,
   activeTouchId: null,
   lastRightTap: 0,
+  auditFlapCooldown: 0,
+  auditDashTimer: 0,
   particles: [],
   dashEffects: [],
   gates: [],
@@ -194,6 +222,19 @@ function getDrawableHeight(drawable) {
   return drawable.naturalHeight || drawable.height || 0;
 }
 
+let actionFrameWarmQueued = false;
+
+function queueActionFrameWarmup() {
+  if (!isMobileDevice || actionFrameWarmQueued) return;
+  actionFrameWarmQueued = true;
+  requestIdle(() => {
+    actionFrameWarmQueued = false;
+    for (const image of characterActionFrames) {
+      if (isImageReady(image)) getOptimizedActionFrame(image);
+    }
+  });
+}
+
 function getOptimizedActionFrame(image) {
   if (!isMobileDevice || !isImageReady(image)) return image;
   const cached = optimizedActionFrames.get(image);
@@ -216,8 +257,13 @@ function getOptimizedActionFrame(image) {
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
   const viewport = getViewportSize();
+  if (state.width === viewport.width && state.height === viewport.height && state.dpr === dpr) {
+    return;
+  }
   state.width = viewport.width;
   state.height = viewport.height;
+  state.dpr = dpr;
+  state.needsDraw = true;
   document.documentElement.style.setProperty("--app-width", `${state.width}px`);
   document.documentElement.style.setProperty("--app-height", `${state.height}px`);
   canvas.width = Math.floor(state.width * dpr);
@@ -233,11 +279,13 @@ function resize() {
 
 function resetGame() {
   startBackgroundVideo();
-  playStartSound();
+  if (!auditAutoplay) playStartSound();
   shell.classList.add("game-active");
   state.running = true;
   state.crashed = false;
   state.lastTime = performance.now();
+  state.idleDrawTimer = 0;
+  state.needsDraw = true;
   state.score = 0;
   state.speed = BASE_SPEED;
   state.paceStartedAt = performance.now();
@@ -247,6 +295,8 @@ function resetGame() {
   state.spawnTimer = 0.85;
   state.shake = 0;
   state.lastRightTap = 0;
+  state.auditFlapCooldown = 0;
+  state.auditDashTimer = 0;
   state.gates = [];
   state.particles = [];
   state.dashEffects = [];
@@ -523,6 +573,7 @@ function crash() {
   state.crashed = true;
   state.running = false;
   shell.classList.remove("game-active");
+  state.needsDraw = true;
   state.shake = 20;
   burst(state.bird.x, state.bird.y, 38, "#ff6c51");
   playCrashSound();
@@ -536,17 +587,86 @@ function crash() {
   updateHud();
 }
 
+function recordAuditFrame(now, frameDelta, drew) {
+  if (!auditMode) return;
+  if (!audit.startedAt) {
+    audit.startedAt = now;
+    audit.lastLogAt = now;
+  }
+
+  const frameMs = frameDelta * 1000;
+  audit.frames += 1;
+  if (drew) audit.drawnFrames += 1;
+  if (state.running) audit.runningFrames += 1;
+  if (frameMs > 34) audit.longFrames += 1;
+  audit.maxFrameMs = Math.max(audit.maxFrameMs, frameMs);
+
+  if (now - audit.lastLogAt < 10000) return;
+  const elapsedSeconds = Math.max(0.001, (now - audit.startedAt) / 1000);
+  const current = {
+    elapsed: Number(elapsedSeconds.toFixed(1)),
+    fps: Number((audit.frames / elapsedSeconds).toFixed(1)),
+    drawnFps: Number((audit.drawnFrames / elapsedSeconds).toFixed(1)),
+    runningFrames: audit.runningFrames,
+    longFrames: audit.longFrames,
+    maxFrameMs: Number(audit.maxFrameMs.toFixed(1)),
+    particles: state.particles.length,
+    dashEffects: state.dashEffects.length,
+    gates: state.gates.length,
+  };
+  console.info(`CHUBBY_AUDIT ${JSON.stringify(current)}`);
+  audit.lastLogAt = now;
+}
+
+function runAuditAutopilot(dt) {
+  if (!auditAutoplay) return;
+  const bird = state.bird;
+  const nextGate = state.gates.find((gate) => gate.x + gate.w > bird.x - 18);
+  const floorY = getFloorSurfaceY();
+  const targetY = nextGate
+    ? (nextGate.gapTop + nextGate.gapBottom) * 0.5 - 8
+    : state.height * 0.42;
+
+  state.auditFlapCooldown = Math.max(0, state.auditFlapCooldown - dt);
+  state.auditDashTimer += dt;
+  if ((bird.y > targetY + 18 || bird.vy > 430) && state.auditFlapCooldown <= 0) {
+    flap(0.82);
+    state.auditFlapCooldown = 0.22;
+  }
+  if (state.auditDashTimer > 3.4) {
+    dashForward(230);
+    state.auditDashTimer = 0;
+  }
+
+  bird.y = clamp(bird.y, HITBOX_RADIUS + 8, floorY - HITBOX_RADIUS - 10);
+  if (bird.y <= HITBOX_RADIUS + 10 && bird.vy < 0) bird.vy = 40;
+  if (bird.y >= floorY - HITBOX_RADIUS - 12 && bird.vy > 0) bird.vy = -120;
+}
+
 function step(now) {
-  let dt = Math.min(MAX_FRAME_DELTA, (now - state.lastTime) / 1000 || 0);
+  if (auditAutoplay && !state.running) resetGame();
+  const frameDelta = state.lastTime ? Math.max(0, (now - state.lastTime) / 1000 || 0) : 0;
+  let dt = Math.min(MAX_FRAME_DELTA, frameDelta);
   state.lastTime = now;
+  let drew = false;
   if (state.running) {
     while (dt > 0) {
       const slice = Math.min(PHYSICS_STEP, dt);
       update(slice);
       dt -= slice;
     }
+    draw(now);
+    drew = true;
+  } else {
+    state.idleDrawTimer += dt;
+    if (state.needsDraw || state.idleDrawTimer >= IDLE_RENDER_INTERVAL) {
+      state.idleDrawTimer = 0;
+      state.needsDraw = false;
+      draw(now);
+      drew = true;
+    }
   }
-  draw();
+  recordAuditFrame(now, frameDelta, drew);
   requestAnimationFrame(step);
 }
 
@@ -567,6 +687,7 @@ function update(dt) {
     bird.angle = Math.max(-0.5, bird.angle - state.dash * 0.35);
   }
   bird.wing += dt * (16 + paceSpeed / 80);
+  runAuditAutopilot(dt);
   if (state.particles.length < MAX_PARTICLES && Math.random() < TRAIL_CHANCE) {
     state.particles.push({
       x: bird.x - 22,
@@ -599,7 +720,7 @@ function update(dt) {
     const sweptRight = Math.max(previousX + gate.w, gate.x + gate.w);
     const withinX = bird.x + HITBOX_RADIUS > sweptLeft && bird.x - HITBOX_RADIUS < sweptRight;
     const outsideGap = bird.y - HITBOX_RADIUS < gate.gapTop || bird.y + HITBOX_RADIUS > gate.gapBottom;
-    if (withinX && outsideGap) {
+    if (!auditAutoplay && withinX && outsideGap) {
       crash();
     }
   }
@@ -638,7 +759,11 @@ function update(dt) {
     updateHud();
   }
 
-  if (bird.y - HITBOX_RADIUS < 0 || bird.y + HITBOX_RADIUS > getFloorSurfaceY()) crash();
+  if (auditAutoplay) {
+    bird.y = clamp(bird.y, HITBOX_RADIUS + 8, getFloorSurfaceY() - HITBOX_RADIUS - 10);
+  } else if (bird.y - HITBOX_RADIUS < 0 || bird.y + HITBOX_RADIUS > getFloorSurfaceY()) {
+    crash();
+  }
 }
 
 function compactArray(items, keep) {
@@ -653,9 +778,9 @@ function compactArray(items, keep) {
   items.length = write;
 }
 
-function draw() {
+function draw(now = performance.now()) {
   const { width, height } = state;
-  const shakeTime = performance.now();
+  const shakeTime = now;
   const shakeX = state.shake ? Math.sin(shakeTime * 0.052) * state.shake * 0.42 : 0;
   const shakeY = state.shake ? Math.cos(shakeTime * 0.061) * state.shake * 0.32 : 0;
   ctx.clearRect(0, 0, width, height);
@@ -663,12 +788,12 @@ function draw() {
   ctx.translate(shakeX, shakeY);
   drawBackground();
   drawDashFlash();
-  drawSpeedLines();
+  drawSpeedLines(now);
   drawGates();
   drawDashEffects();
   drawParticles();
-  drawBird();
-  drawForeground();
+  drawBird(now);
+  drawForeground(now);
   ctx.restore();
 }
 
@@ -841,32 +966,37 @@ function playNoise(duration, volume, delay = 0) {
 }
 
 function playStartSound() {
+  if (auditAutoplay) return;
   playTone("square", 420, 620, 0.06, 0.045);
   playTone("square", 620, 880, 0.08, 0.05, 0.07);
 }
 
 function playFlapSound(power) {
+  if (auditAutoplay) return;
   const lift = Math.min(1.6, power);
   playTone("square", 520 + lift * 55, 780 + lift * 110, 0.075, 0.045);
 }
 
 function playDashSound(strength) {
+  if (auditAutoplay) return;
   playTone("sawtooth", 180 + strength * 80, 70, 0.16, 0.075);
   playTone("square", 860, 520, 0.1, 0.035, 0.025);
   playNoise(0.13, 0.05);
 }
 
 function playScoreSound() {
+  if (auditAutoplay) return;
   playTone("square", 680, 920, 0.07, 0.04);
   playTone("square", 920, 1220, 0.08, 0.04, 0.07);
 }
 
 function playCrashSound() {
+  if (auditAutoplay) return;
   playTone("sawtooth", 170, 45, 0.28, 0.075);
   playNoise(0.22, 0.08);
 }
 
-function drawRidges() {
+function drawRidges(now = performance.now()) {
   for (let layer = 0; layer < state.ridges.length; layer += 1) {
     const points = state.ridges[layer];
     const speed = getPaceSpeed() * (0.055 + layer * 0.028);
@@ -877,7 +1007,7 @@ function drawRidges() {
     for (let i = -1; i < points.length + 2; i += 1) {
       const point = points[(i + points.length) % points.length];
       const loopW = points.length * 190;
-      const x = ((point.x - performance.now() * 0.001 * speed) % loopW) - 190;
+      const x = ((point.x - now * 0.001 * speed) % loopW) - 190;
       ctx.lineTo(x, baseY - point.h);
       ctx.lineTo(x + point.w * 0.52, baseY - point.h - 32);
       ctx.lineTo(x + point.w, baseY - point.h);
@@ -888,9 +1018,8 @@ function drawRidges() {
   }
 }
 
-function drawSpeedLines() {
+function drawSpeedLines(now = performance.now()) {
   const pace = Math.max(0, getPaceMultiplier() - 1) * 1.4 + state.dash * 0.65;
-  const now = performance.now();
   const lineCount = isMobileDevice ? (state.running ? 11 : 6) : (state.running ? 18 : 10);
   ctx.lineCap = "round";
   for (let i = 0; i < lineCount; i += 1) {
@@ -1054,8 +1183,7 @@ function drawGapEdgeSpark(gate, glow) {
   ctx.fill();
 }
 
-function getCharacterActionFrame() {
-  const now = performance.now();
+function getCharacterActionFrame(now = performance.now()) {
   const activeName = state.bird.animUntil > now ? state.bird.animName : "idle";
   const frames = characterAnimations[activeName] || characterAnimations.idle;
   const frameMs = activeName === "idle" ? 170 : 58;
@@ -1066,21 +1194,21 @@ function getCharacterActionFrame() {
   return isImageReady(image) ? getOptimizedActionFrame(image) : null;
 }
 
-function drawBird() {
+function drawBird(now = performance.now()) {
   const b = state.bird;
   ctx.save();
   ctx.translate(b.x + state.dash * 14, b.y);
   ctx.rotate(b.angle);
 
-  const actionFrame = getCharacterActionFrame();
+  const actionFrame = getCharacterActionFrame(now);
   if (actionFrame) {
     const ratio = getDrawableWidth(actionFrame) / getDrawableHeight(actionFrame);
-    const active = b.animUntil > performance.now() ? b.animName : "idle";
+    const active = b.animUntil > now ? b.animName : "idle";
     const flap = Math.sin(b.wing * 1.38);
     const drawH = 118 + flap * 2 + state.dash * 5 + (active === "super" ? 6 : 0);
     const drawW = drawH * ratio;
     const wingBob = flap * 1.4;
-    const flash = b.invuln > 0 && Math.floor(performance.now() / 70) % 2;
+    const flash = b.invuln > 0 && Math.floor(now / 70) % 2;
     const stretchX = 1 + state.dash * 0.08 + (active === "dash" ? 0.04 : 0);
     const stretchY = 1 - state.dash * 0.025 + (active === "super" ? 0.03 : 0);
 
@@ -1108,7 +1236,7 @@ function drawBird() {
     const drawH = 106 + flap * 2.4 + state.dash * 5;
     const drawW = drawH * ratio;
     const wingBob = flap * 1.7;
-    const flash = b.invuln > 0 && Math.floor(performance.now() / 70) % 2;
+    const flash = b.invuln > 0 && Math.floor(now / 70) % 2;
     const stretchX = 1 + state.dash * 0.08 + Math.max(0, -b.vy) * 0.00004;
     const stretchY = 1 - state.dash * 0.025 - Math.max(0, -b.vy) * 0.000018;
 
@@ -1139,13 +1267,13 @@ function drawBird() {
   if (characterImage.complete && characterImage.naturalWidth > 0) {
     const speedBoost = Math.max(0, getPaceSpeed() - BASE_SPEED) / BASE_SPEED;
     const frameIndex =
-      Math.floor((performance.now() * (1 + speedBoost * 0.35)) / characterSprite.frameMs) %
+      Math.floor((now * (1 + speedBoost * 0.35)) / characterSprite.frameMs) %
       characterSprite.frameCount;
     const frameX = frameIndex * characterSprite.cellWidth;
     const drawH = 84;
     const drawW = drawH * (characterSprite.cellWidth / characterSprite.cellHeight);
     const wingBob = Math.sin(b.wing) * 1.4;
-    const flash = b.invuln > 0 && Math.floor(performance.now() / 70) % 2;
+    const flash = b.invuln > 0 && Math.floor(now / 70) % 2;
 
     ctx.globalAlpha = flash ? 0.76 : 1;
     if (!isMobileDevice) {
@@ -1172,7 +1300,7 @@ function drawBird() {
     return;
   }
 
-  const flash = b.invuln > 0 && Math.floor(performance.now() / 70) % 2;
+  const flash = b.invuln > 0 && Math.floor(now / 70) % 2;
   const bodyBase = flash ? "#ffffff" : "#ffd82f";
   const bodyShade = flash ? "#d6f7ff" : "#e2a823";
   const bodyInk = "#071013";
@@ -1513,12 +1641,11 @@ function drawStarburstPath(x, y, innerRadius, outerRadius, points) {
   ctx.closePath();
 }
 
-function drawForeground() {
+function drawForeground(now = performance.now()) {
   ensureFloorArt();
   const groundY = getFloorSurfaceY() + 8;
-  const time = performance.now();
-  const topOffset = positiveModulo(time * 0.18, floorArt.topWidth);
-  const tileOffset = positiveModulo(time * 0.34, floorArt.bodyWidth);
+  const topOffset = positiveModulo(now * 0.18, floorArt.topWidth);
+  const tileOffset = positiveModulo(now * 0.34, floorArt.bodyWidth);
 
   ctx.save();
   ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
@@ -1877,7 +2004,18 @@ function scheduleResize() {
   });
 }
 
+function handleVisibilityChange() {
+  state.lastTime = performance.now();
+  state.needsDraw = true;
+  if (document.hidden) {
+    backgroundVideo.pause();
+  } else {
+    startBackgroundVideo();
+  }
+}
+
 window.addEventListener("resize", scheduleResize);
+document.addEventListener("visibilitychange", handleVisibilityChange);
 if (isMobileDevice && window.visualViewport) {
   window.visualViewport.addEventListener("resize", scheduleResize);
   window.visualViewport.addEventListener("scroll", scheduleResize);
@@ -1929,10 +2067,8 @@ window.addEventListener("keydown", (event) => {
   }
 });
 startButton.addEventListener("click", resetGame);
-window.setInterval(() => {
-  if (state.running) updateHud();
-}, 120);
 
 resize();
 startBackgroundVideo();
+queueActionFrameWarmup();
 requestAnimationFrame(step);
