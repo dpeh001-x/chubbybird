@@ -6,6 +6,13 @@ const bestEl = document.querySelector("#best");
 const paceEl = document.querySelector("#pace");
 const overlay = document.querySelector("#overlay");
 const startButton = document.querySelector("#startButton");
+const leaderboardList = document.querySelector("#leaderboardList");
+const leaderboardStatus = document.querySelector("#leaderboardStatus");
+const refreshLeaderboardButton = document.querySelector("#refreshLeaderboard");
+const scoreSubmitForm = document.querySelector("#scoreSubmitForm");
+const playerNameInput = document.querySelector("#playerName");
+const scoreSubmitButton = document.querySelector("#scoreSubmitButton");
+const scoreSubmitValue = document.querySelector("#scoreSubmitValue");
 const queryParams = new URLSearchParams(window.location.search);
 const auditMode = queryParams.has("audit");
 const auditAutoplay = auditMode && queryParams.has("autoplay");
@@ -35,6 +42,10 @@ const SUPER_JUMP_LIFT = 560;
 const GRAVITY_BASE = 1160;
 const GRAVITY_SPEED_SCALE = 0.22;
 const bestKey = "rushwing-best";
+const playerNameKey = "chubbybird-player-name";
+const playerIdKey = "chubbybird-player-id";
+const localLeaderboardKeyPrefix = "chubbybird-weekly-scores:";
+const leaderboardLimit = 20;
 const BACKGROUND_VIDEO_RATE = isMobileDevice ? 0.55 : 0.8;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 const IDLE_RENDER_INTERVAL = isMobileDevice ? 1 / 24 : 1 / 45;
@@ -79,6 +90,13 @@ const audit = {
   runningFrames: 0,
   longFrames: 0,
   maxFrameMs: 0,
+};
+const leaderboardState = {
+  entries: [],
+  week: getIsoWeekId(),
+  latestScore: 0,
+  online: false,
+  loading: false,
 };
 const floorArt = {
   topTile: document.createElement("canvas"),
@@ -180,6 +198,225 @@ function saveBestScore(score) {
     localStorage.setItem(bestKey, score);
   } catch {
     // Some mobile private-browsing modes block storage; the run should still continue.
+  }
+}
+
+function getStoredValue(key, fallback = "") {
+  try {
+    return localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function setStoredValue(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage can be unavailable in private mobile tabs.
+  }
+}
+
+function getIsoWeekId(date = new Date()) {
+  const current = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = current.getUTCDay() || 7;
+  current.setUTCDate(current.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(current.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((current - yearStart) / 86400000 + 1) / 7);
+  return `${current.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+function getPlayerId() {
+  const stored = getStoredValue(playerIdKey);
+  if (stored) return stored;
+  const generated =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `player-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  setStoredValue(playerIdKey, generated);
+  return generated;
+}
+
+function sanitizePlayerName(name) {
+  const cleaned = String(name || "")
+    .replace(/[^a-z0-9 ._-]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 12);
+  return cleaned || "Chubby";
+}
+
+function getLeaderboardApiUrl() {
+  if (window.location.protocol === "file:") return "";
+  return new URL("api/leaderboard", window.location.href).toString();
+}
+
+function getLocalLeaderboardKey() {
+  return `${localLeaderboardKeyPrefix}${getIsoWeekId()}`;
+}
+
+function loadLocalLeaderboard() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(getLocalLeaderboardKey()) || "[]");
+    return Array.isArray(stored) ? stored.slice(0, leaderboardLimit) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalLeaderboardScore(name, score) {
+  const entry = {
+    name: sanitizePlayerName(name),
+    score: Math.max(0, Math.floor(Number(score) || 0)),
+    updatedAt: new Date().toISOString(),
+  };
+  if (!entry.score) return loadLocalLeaderboard();
+
+  const entries = loadLocalLeaderboard().filter((item) => item.name !== entry.name);
+  entries.push(entry);
+  entries.sort((a, b) => b.score - a.score || a.updatedAt.localeCompare(b.updatedAt));
+  const trimmed = entries.slice(0, leaderboardLimit);
+  try {
+    localStorage.setItem(getLocalLeaderboardKey(), JSON.stringify(trimmed));
+  } catch {
+    // Best-effort fallback for local play.
+  }
+  return trimmed;
+}
+
+function renderLeaderboard(entries, week = leaderboardState.week) {
+  if (!leaderboardList) return;
+  leaderboardList.replaceChildren();
+  const visibleEntries = Array.isArray(entries) ? entries.slice(0, leaderboardLimit) : [];
+  if (!visibleEntries.length) {
+    const item = document.createElement("li");
+    item.className = "empty-score";
+    item.textContent = "No scores yet this week";
+    leaderboardList.appendChild(item);
+    return;
+  }
+
+  visibleEntries.forEach((entry, index) => {
+    const item = document.createElement("li");
+    const rank = document.createElement("span");
+    const name = document.createElement("span");
+    const score = document.createElement("span");
+    rank.className = "score-rank";
+    name.className = "score-name";
+    score.className = "score-value";
+    rank.textContent = `${index + 1}.`;
+    name.textContent = sanitizePlayerName(entry.name);
+    score.textContent = Math.max(0, Math.floor(Number(entry.score) || 0)).toString();
+    item.append(rank, name, score);
+    leaderboardList.appendChild(item);
+  });
+  leaderboardState.week = week || leaderboardState.week;
+}
+
+function setLeaderboardStatus(message) {
+  if (leaderboardStatus) leaderboardStatus.textContent = message;
+}
+
+function useLocalLeaderboardStatus(message = "Local scores on this device") {
+  leaderboardState.online = false;
+  leaderboardState.entries = loadLocalLeaderboard();
+  renderLeaderboard(leaderboardState.entries, getIsoWeekId());
+  setLeaderboardStatus(message);
+}
+
+async function loadLeaderboard(options = {}) {
+  if (!leaderboardList || leaderboardState.loading) return;
+  const url = getLeaderboardApiUrl();
+  if (!url) {
+    useLocalLeaderboardStatus("Local scores on this device");
+    return;
+  }
+
+  leaderboardState.loading = true;
+  if (!options.silent) setLeaderboardStatus("Loading weekly scores...");
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`Leaderboard ${response.status}`);
+    const data = await response.json();
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    leaderboardState.online = true;
+    leaderboardState.entries = entries.slice(0, leaderboardLimit);
+    renderLeaderboard(leaderboardState.entries, data.week || getIsoWeekId());
+    setLeaderboardStatus(entries.length ? `Online week ${data.week || getIsoWeekId()}` : "Be first this week");
+  } catch {
+    useLocalLeaderboardStatus("Online board is waiting for deploy");
+  } finally {
+    leaderboardState.loading = false;
+  }
+}
+
+function showScoreSubmit(score) {
+  if (!scoreSubmitForm || !scoreSubmitValue) return;
+  const cleanScore = Math.max(0, Math.floor(Number(score) || 0));
+  leaderboardState.latestScore = cleanScore;
+  scoreSubmitValue.textContent = cleanScore.toString();
+  scoreSubmitForm.classList.toggle("hidden", cleanScore <= 0);
+  if (cleanScore > 0) setLeaderboardStatus("Save this run to the weekly board");
+}
+
+function hideScoreSubmit() {
+  if (scoreSubmitForm) scoreSubmitForm.classList.add("hidden");
+}
+
+async function submitLeaderboardScore(event) {
+  event.preventDefault();
+  const score = leaderboardState.latestScore;
+  const name = sanitizePlayerName(playerNameInput ? playerNameInput.value : "");
+  if (!score) return;
+  setStoredValue(playerNameKey, name);
+
+  const url = getLeaderboardApiUrl();
+  if (scoreSubmitButton) scoreSubmitButton.disabled = true;
+  try {
+    if (!url) {
+      leaderboardState.entries = saveLocalLeaderboardScore(name, score);
+      renderLeaderboard(leaderboardState.entries, getIsoWeekId());
+      setLeaderboardStatus("Saved on this device");
+      return;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name,
+        playerId: getPlayerId(),
+        score,
+      }),
+    });
+    if (!response.ok) throw new Error(`Leaderboard ${response.status}`);
+    const data = await response.json();
+    leaderboardState.online = true;
+    leaderboardState.entries = Array.isArray(data.entries) ? data.entries.slice(0, leaderboardLimit) : [];
+    renderLeaderboard(leaderboardState.entries, data.week || getIsoWeekId());
+    setLeaderboardStatus(data.accepted ? "Score saved online" : "Your weekly best is already higher");
+  } catch {
+    leaderboardState.entries = saveLocalLeaderboardScore(name, score);
+    renderLeaderboard(leaderboardState.entries, getIsoWeekId());
+    setLeaderboardStatus("Saved locally; online board is waiting");
+  } finally {
+    if (scoreSubmitButton) scoreSubmitButton.disabled = false;
+  }
+}
+
+function setupLeaderboard() {
+  if (playerNameInput) {
+    playerNameInput.value = sanitizePlayerName(getStoredValue(playerNameKey, "Chubby"));
+  }
+  if (scoreSubmitForm) scoreSubmitForm.addEventListener("submit", submitLeaderboardScore);
+  if (refreshLeaderboardButton) {
+    refreshLeaderboardButton.addEventListener("click", () => loadLeaderboard({ silent: false }));
   }
 }
 
@@ -306,6 +543,7 @@ function resetGame() {
   state.bird.angle = 0;
   state.bird.invuln = 0.7;
   overlay.classList.add("hidden");
+  hideScoreSubmit();
   updateHud();
 }
 
@@ -584,6 +822,8 @@ function crash() {
     `Score ${state.score}. Tap or Space to flap. Swipe up for a super jump. Swipe right or double-tap Right to dash.`;
   startButton.textContent = "Retry";
   overlay.classList.remove("hidden");
+  showScoreSubmit(state.score);
+  loadLeaderboard({ silent: true });
   updateHud();
 }
 
@@ -2068,7 +2308,9 @@ window.addEventListener("keydown", (event) => {
 });
 startButton.addEventListener("click", resetGame);
 
+setupLeaderboard();
 resize();
 startBackgroundVideo();
 queueActionFrameWarmup();
+loadLeaderboard();
 requestAnimationFrame(step);

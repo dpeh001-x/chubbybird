@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chubbybird",
+  "compatibility_date": "2026-05-02",
+  "main": "worker.mjs",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*",
+      "/chubbybird/api/*"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LEADERBOARD",
+        "class_name": "WeeklyLeaderboard"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "WeeklyLeaderboard"
+      ]
+    }
+  ],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
