@@ -248,6 +248,9 @@ function sanitizePlayerName(name) {
 
 function getLeaderboardApiUrl() {
   if (window.location.protocol === "file:") return "";
+  if (window.location.hostname.endsWith("github.io")) {
+    return "https://moji-studios.com/chubbybird/api/leaderboard";
+  }
   return new URL("api/leaderboard", window.location.href).toString();
 }
 
