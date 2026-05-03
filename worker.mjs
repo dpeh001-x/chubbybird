@@ -1,5 +1,4 @@
 const leaderboardLimit = 20;
-const storedScoreLimit = 100;
 
 const jsonHeaders = {
   "Access-Control-Allow-Headers": "content-type",
@@ -48,7 +47,7 @@ export class WeeklyLeaderboard {
     const name = sanitizeName(payload.name);
     const month = getMonthId();
     const now = new Date().toISOString();
-    let accepted = false;
+    let improved = false;
     let entries = await this.readEntries(month);
     const existing = entries.find((entry) => entry.playerId === playerId);
 
@@ -57,23 +56,23 @@ export class WeeklyLeaderboard {
       if (score > existing.score) {
         existing.score = score;
         existing.updatedAt = now;
-        accepted = true;
+        improved = true;
       }
     } else {
       entries.push({ playerId, name, score, updatedAt: now });
-      accepted = true;
+      improved = true;
     }
 
     entries.sort((a, b) => b.score - a.score || a.updatedAt.localeCompare(b.updatedAt));
-    entries = entries.slice(0, storedScoreLimit);
+    entries = entries.slice(0, leaderboardLimit);
     await this.ctx.storage.put(scoreKey(month), entries);
 
     const rank = entries.findIndex((entry) => entry.playerId === playerId) + 1;
     return json({
-      accepted,
+      accepted: improved && rank > 0,
       rank,
       month,
-      entries: entries.slice(0, leaderboardLimit).map(publicEntry),
+      entries: entries.map(publicEntry),
     });
   }
 

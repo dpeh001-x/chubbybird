@@ -440,7 +440,7 @@ async function submitLeaderboardScore(event) {
     leaderboardState.online = true;
     leaderboardState.entries = Array.isArray(data.entries) ? data.entries.slice(0, leaderboardLimit) : [];
     renderLeaderboard(leaderboardState.entries, data.month || data.week || getMonthId());
-    setLeaderboardStatus(data.accepted ? "Score saved online" : "Your monthly best is already higher");
+    setLeaderboardStatus(data.accepted ? "Score saved online" : "Score did not improve the monthly top 20");
   } catch {
     leaderboardState.entries = saveLocalLeaderboardScore(name, score);
     renderLeaderboard(leaderboardState.entries, getMonthId());
