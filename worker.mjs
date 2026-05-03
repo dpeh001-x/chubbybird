@@ -23,10 +23,14 @@ export class WeeklyLeaderboard {
 
   async getScores() {
     const month = getMonthId();
-    const entries = await this.readEntries(month);
+    const storedEntries = await this.readEntries(month);
+    const entries = rankEntries(storedEntries);
+    if (storedEntries.length !== entries.length) {
+      await this.ctx.storage.put(scoreKey(month), entries);
+    }
     return json({
       month,
-      entries: entries.slice(0, leaderboardLimit).map(publicEntry),
+      entries: entries.map(publicEntry),
     });
   }
 
@@ -63,8 +67,7 @@ export class WeeklyLeaderboard {
       improved = true;
     }
 
-    entries.sort((a, b) => b.score - a.score || a.updatedAt.localeCompare(b.updatedAt));
-    entries = entries.slice(0, leaderboardLimit);
+    entries = rankEntries(entries);
     await this.ctx.storage.put(scoreKey(month), entries);
 
     const rank = entries.findIndex((entry) => entry.playerId === playerId) + 1;
@@ -104,6 +107,16 @@ function scoreKey(month) {
 
 function getMonthId(date = new Date()) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function rankEntries(entries) {
+  return entries
+    .slice()
+    .sort((a, b) => {
+      const scoreDelta = Number(b.score) - Number(a.score);
+      return scoreDelta || String(a.updatedAt || "").localeCompare(String(b.updatedAt || ""));
+    })
+    .slice(0, leaderboardLimit);
 }
 
 function sanitizeName(name) {
