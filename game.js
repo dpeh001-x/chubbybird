@@ -38,6 +38,7 @@ const MAX_FRAME_DELTA = isMobileDevice ? 0.036 : 0.04;
 const TRAIL_CHANCE = isAndroidDevice ? 0.03 : isMobileDevice ? 0.05 : 0.32;
 const BASE_SPEED = 320;
 const PACE_CYCLE_SECONDS = 8;
+const DIFFICULTY_START_SCORE = 10;
 const HITBOX_RADIUS = 15;
 const MOBILE_ACTION_FRAME_HEIGHT = 144;
 const MOBILE_ACTION_SHEET_CELL_WIDTH = 154;
@@ -600,6 +601,7 @@ function updateHud() {
 
 function getPaceMultiplier() {
   if (!state.running) return 1;
+  if (state.score <= DIFFICULTY_START_SCORE) return 1;
   const elapsed = Math.max(0, (performance.now() - state.paceStartedAt) / 1000);
   const phase = (elapsed % PACE_CYCLE_SECONDS) / PACE_CYCLE_SECONDS;
   const triangle = 1 - Math.abs(phase * 2 - 1);
@@ -611,9 +613,10 @@ function getPaceSpeed() {
 }
 
 function getGateGap() {
-  const normalGap = Math.max(GATE_MIN_GAP, GATE_START_GAP - state.score * GATE_SCORE_TIGHTEN);
-  if (state.score >= EARLY_WIDE_GAP_SCORE_LIMIT) return normalGap;
-  const earlyEase = 1 - state.score / EARLY_WIDE_GAP_SCORE_LIMIT;
+  const difficultyScore = Math.max(0, state.score - DIFFICULTY_START_SCORE);
+  const normalGap = Math.max(GATE_MIN_GAP, GATE_START_GAP - difficultyScore * GATE_SCORE_TIGHTEN);
+  if (difficultyScore >= EARLY_WIDE_GAP_SCORE_LIMIT) return normalGap;
+  const earlyEase = 1 - difficultyScore / EARLY_WIDE_GAP_SCORE_LIMIT;
   return normalGap + EARLY_WIDE_GAP_BONUS * earlyEase;
 }
 
@@ -987,7 +990,11 @@ function update(dt) {
     gate.pulse += dt * 5;
     if (!gate.scored && gate.x + gate.w < bird.x) {
       gate.scored = true;
+      const previousScore = state.score;
       state.score += 1;
+      if (previousScore <= DIFFICULTY_START_SCORE && state.score > DIFFICULTY_START_SCORE) {
+        state.paceStartedAt = performance.now();
+      }
       playScoreSound();
       updateHud();
     }
