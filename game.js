@@ -1,6 +1,5 @@
 const canvas = document.querySelector("#game");
 const shell = document.querySelector(".game-shell");
-const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true }) || canvas.getContext("2d");
 const scoreEl = document.querySelector("#score");
 const bestEl = document.querySelector("#best");
 const paceEl = document.querySelector("#pace");
@@ -22,12 +21,21 @@ const coarsePointerQuery =
 const isMobileDevice =
   Boolean(coarsePointerQuery && coarsePointerQuery.matches) ||
   /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const isAndroidDevice = /Android/i.test(navigator.userAgent);
+const canvasContextOptions = {
+  alpha: !isMobileDevice,
+  desynchronized: !isMobileDevice,
+};
+const ctx =
+  canvas.getContext("2d", canvasContextOptions) ||
+  canvas.getContext("2d", { alpha: !isMobileDevice }) ||
+  canvas.getContext("2d");
 const DPR_LIMIT = isMobileDevice ? 1 : 1.5;
-const MAX_PARTICLES = isMobileDevice ? 18 : 80;
-const MAX_DASH_EFFECTS = isMobileDevice ? 14 : 72;
+const MAX_PARTICLES = isAndroidDevice ? 12 : isMobileDevice ? 18 : 80;
+const MAX_DASH_EFFECTS = isAndroidDevice ? 10 : isMobileDevice ? 14 : 72;
 const PHYSICS_STEP = 1 / 60;
 const MAX_FRAME_DELTA = isMobileDevice ? 0.036 : 0.04;
-const TRAIL_CHANCE = isMobileDevice ? 0.05 : 0.32;
+const TRAIL_CHANCE = isAndroidDevice ? 0.03 : isMobileDevice ? 0.05 : 0.32;
 const BASE_SPEED = 430;
 const PACE_CYCLE_SECONDS = 8;
 const HITBOX_RADIUS = 18;
@@ -121,6 +129,12 @@ const floorArt = {
   topHeight: 42,
   bodyHeight: 48,
 };
+const mobileBackgroundArt = {
+  canvas: document.createElement("canvas"),
+  width: 0,
+  height: 0,
+  dpr: 0,
+};
 const characterImage = new Image();
 characterImage.decoding = "async";
 if (!isMobileDevice) {
@@ -193,7 +207,7 @@ const state = {
   stars: [],
   ridges: [],
   performanceStress: 0,
-  performanceSaver: false,
+  performanceSaver: isAndroidDevice,
   bird: {
     x: 0,
     y: 0,
@@ -208,6 +222,7 @@ const state = {
   },
 };
 
+shell.classList.toggle("performance-saver", state.performanceSaver);
 bestEl.textContent = state.best;
 
 function loadBestScore() {
@@ -535,6 +550,7 @@ function resize() {
   canvas.height = Math.floor(state.height * dpr);
   canvas.style.width = `${state.width}px`;
   canvas.style.height = `${state.height}px`;
+  mobileBackgroundArt.width = 0;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = isMobileDevice ? "medium" : "high";
@@ -564,6 +580,9 @@ function resetGame() {
   state.lastRightTap = 0;
   state.auditFlapCooldown = 0;
   state.auditDashTimer = 0;
+  state.performanceStress = 0;
+  state.performanceSaver = isAndroidDevice;
+  shell.classList.toggle("performance-saver", state.performanceSaver);
   state.gates = [];
   state.particles = [];
   state.dashEffects = [];
@@ -1044,7 +1063,7 @@ function draw(now = performance.now()) {
   ctx.clearRect(0, 0, width, height);
   ctx.save();
   ctx.translate(shakeX, shakeY);
-  drawBackground();
+  drawBackground(now);
   drawGates();
   drawDashEffects();
   drawParticles();
@@ -1053,7 +1072,84 @@ function draw(now = performance.now()) {
   ctx.restore();
 }
 
-function drawBackground() {}
+function drawBackground() {
+  if (!isMobileDevice) return;
+  ensureMobileBackgroundArt();
+  ctx.drawImage(mobileBackgroundArt.canvas, 0, 0, state.width, state.height);
+}
+
+function ensureMobileBackgroundArt() {
+  const dpr = state.dpr || 1;
+  if (
+    mobileBackgroundArt.width === state.width &&
+    mobileBackgroundArt.height === state.height &&
+    mobileBackgroundArt.dpr === dpr
+  ) {
+    return;
+  }
+
+  mobileBackgroundArt.width = state.width;
+  mobileBackgroundArt.height = state.height;
+  mobileBackgroundArt.dpr = dpr;
+  mobileBackgroundArt.canvas.width = Math.ceil(state.width * dpr);
+  mobileBackgroundArt.canvas.height = Math.ceil(state.height * dpr);
+
+  const bgCtx = mobileBackgroundArt.canvas.getContext("2d", { alpha: false });
+  bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  bgCtx.imageSmoothingEnabled = true;
+  bgCtx.imageSmoothingQuality = "low";
+
+  const sky = bgCtx.createLinearGradient(0, 0, 0, state.height);
+  sky.addColorStop(0, "#173b58");
+  sky.addColorStop(0.52, "#1b5a62");
+  sky.addColorStop(1, "#0f2b25");
+  bgCtx.fillStyle = sky;
+  bgCtx.fillRect(0, 0, state.width, state.height);
+
+  bgCtx.fillStyle = "#fff0a8";
+  bgCtx.beginPath();
+  bgCtx.arc(state.width * 0.76, state.height * 0.18, 42, 0, Math.PI * 2);
+  bgCtx.fill();
+  bgCtx.fillStyle = "#d7aa43";
+  bgCtx.beginPath();
+  bgCtx.arc(state.width * 0.76 + 13, state.height * 0.2 + 10, 33, 0, Math.PI * 2);
+  bgCtx.fill();
+  bgCtx.fillStyle = "rgba(255, 248, 190, 0.28)";
+  bgCtx.beginPath();
+  bgCtx.arc(state.width * 0.76 - 12, state.height * 0.18 - 13, 12, 0, Math.PI * 2);
+  bgCtx.fill();
+
+  drawMobileHillBand(bgCtx, state.height * 0.74, "#174d3d", 0.95, 0);
+  drawMobileHillBand(bgCtx, state.height * 0.83, "#0b2b25", 1, 34);
+
+  bgCtx.fillStyle = "rgba(255, 240, 168, 0.08)";
+  for (let i = 0; i < 9; i += 1) {
+    const x = (i * 89 + 32) % Math.max(320, state.width);
+    const y = state.height * (0.18 + (i % 4) * 0.08);
+    bgCtx.beginPath();
+    bgCtx.arc(x, y, 2 + (i % 3), 0, Math.PI * 2);
+    bgCtx.fill();
+  }
+}
+
+function drawMobileHillBand(targetCtx, baseY, color, alpha, offset) {
+  targetCtx.save();
+  targetCtx.globalAlpha = alpha;
+  targetCtx.fillStyle = color;
+  targetCtx.beginPath();
+  targetCtx.moveTo(0, state.height);
+  targetCtx.lineTo(0, baseY);
+  const step = Math.max(76, state.width / 5);
+  for (let x = -step; x <= state.width + step; x += step) {
+    const peakX = x + step * 0.5 + offset;
+    const peakY = baseY - 34 - ((x / step) % 2) * 16;
+    targetCtx.quadraticCurveTo(peakX, peakY, x + step + offset, baseY + 8);
+  }
+  targetCtx.lineTo(state.width, state.height);
+  targetCtx.closePath();
+  targetCtx.fill();
+  targetCtx.restore();
+}
 
 function drawGeneratedBackground() {
   ctx.fillStyle = "#123549";
@@ -2295,7 +2391,11 @@ function preventTouchScroll(event) {
 
 let resizeQueued = false;
 
-function scheduleResize() {
+function scheduleResize(force = false) {
+  if (isMobileDevice && state.running && !force) {
+    state.needsDraw = true;
+    return;
+  }
   if (resizeQueued) return;
   resizeQueued = true;
   requestAnimationFrame(() => {
@@ -2320,11 +2420,10 @@ window.addEventListener("resize", scheduleResize);
 document.addEventListener("visibilitychange", handleVisibilityChange);
 if (isMobileDevice && window.visualViewport) {
   window.visualViewport.addEventListener("resize", scheduleResize);
-  window.visualViewport.addEventListener("scroll", scheduleResize);
 }
 window.addEventListener("orientationchange", () => {
-  scheduleResize();
-  window.setTimeout(scheduleResize, 240);
+  scheduleResize(true);
+  window.setTimeout(() => scheduleResize(true), 240);
 });
 window.addEventListener("pointerdown", startBackgroundVideo, { passive: true });
 window.addEventListener("pointerdown", unlockAudio, { passive: true });
@@ -2383,5 +2482,9 @@ if (isMobileDevice) {
   startBackgroundVideo();
 }
 queueActionFrameWarmup();
-loadLeaderboard();
+if (isMobileDevice) {
+  requestIdle(() => loadLeaderboard());
+} else {
+  loadLeaderboard();
+}
 requestAnimationFrame(step);

@@ -80,15 +80,7 @@ body {
 }
 
 .game-shell.mobile-generated-background::before {
-  inset: -18% -30%;
-  background:
-    radial-gradient(circle at 74% 16%, #fff0a8 0 32px, #d7aa43 33px 48px, transparent 49px),
-    radial-gradient(ellipse at 20% 76%, rgba(58, 169, 121, 0.72) 0 25%, transparent 26%),
-    radial-gradient(ellipse at 72% 82%, rgba(23, 77, 61, 0.82) 0 34%, transparent 35%),
-    radial-gradient(ellipse at 38% 63%, rgba(142, 214, 173, 0.34) 0 22%, transparent 23%),
-    linear-gradient(180deg, #173b58 0%, #1b5a62 44%, #0f2b25 100%);
-  opacity: 0.96;
-  animation: mobile-bg-drift 54s linear infinite;
+  display: none;
 }
 
 .game-shell::after {
@@ -104,7 +96,7 @@ body {
 }
 
 .game-shell.mobile-optimized::after {
-  opacity: 0.62;
+  display: none;
 }
 
 .background-video {
