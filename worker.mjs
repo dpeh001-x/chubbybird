@@ -23,10 +23,10 @@ export class WeeklyLeaderboard {
   }
 
   async getScores() {
-    const week = getIsoWeekId();
-    const entries = await this.readEntries(week);
+    const month = getMonthId();
+    const entries = await this.readEntries(month);
     return json({
-      week,
+      month,
       entries: entries.slice(0, leaderboardLimit).map(publicEntry),
     });
   }
@@ -46,10 +46,10 @@ export class WeeklyLeaderboard {
 
     const playerId = sanitizePlayerId(payload.playerId);
     const name = sanitizeName(payload.name);
-    const week = getIsoWeekId();
+    const month = getMonthId();
     const now = new Date().toISOString();
     let accepted = false;
-    let entries = await this.readEntries(week);
+    let entries = await this.readEntries(month);
     const existing = entries.find((entry) => entry.playerId === playerId);
 
     if (existing) {
@@ -66,19 +66,19 @@ export class WeeklyLeaderboard {
 
     entries.sort((a, b) => b.score - a.score || a.updatedAt.localeCompare(b.updatedAt));
     entries = entries.slice(0, storedScoreLimit);
-    await this.ctx.storage.put(scoreKey(week), entries);
+    await this.ctx.storage.put(scoreKey(month), entries);
 
     const rank = entries.findIndex((entry) => entry.playerId === playerId) + 1;
     return json({
       accepted,
       rank,
-      week,
+      month,
       entries: entries.slice(0, leaderboardLimit).map(publicEntry),
     });
   }
 
-  async readEntries(week) {
-    const entries = await this.ctx.storage.get(scoreKey(week));
+  async readEntries(month) {
+    const entries = await this.ctx.storage.get(scoreKey(month));
     return Array.isArray(entries) ? entries : [];
   }
 }
@@ -88,7 +88,7 @@ export default {
     const url = new URL(request.url);
     if (isLeaderboardPath(url.pathname)) {
       if (!env.LEADERBOARD) return json({ error: "Leaderboard binding missing" }, 503);
-      const id = env.LEADERBOARD.idFromName("weekly-global");
+      const id = env.LEADERBOARD.idFromName("monthly-global");
       return env.LEADERBOARD.get(id).fetch(request);
     }
     return env.ASSETS.fetch(request);
@@ -99,17 +99,12 @@ function isLeaderboardPath(pathname) {
   return pathname === "/api/leaderboard" || pathname.endsWith("/api/leaderboard");
 }
 
-function scoreKey(week) {
-  return `scores:${week}`;
+function scoreKey(month) {
+  return `scores:${month}`;
 }
 
-function getIsoWeekId(date = new Date()) {
-  const current = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = current.getUTCDay() || 7;
-  current.setUTCDate(current.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(current.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((current - yearStart) / 86400000 + 1) / 7);
-  return `${current.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+function getMonthId(date = new Date()) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 function sanitizeName(name) {

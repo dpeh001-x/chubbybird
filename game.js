@@ -54,7 +54,7 @@ const GRAVITY_SPEED_SCALE = 0.22;
 const bestKey = "rushwing-best";
 const playerNameKey = "chubbybird-player-name";
 const playerIdKey = "chubbybird-player-id";
-const localLeaderboardKeyPrefix = "chubbybird-weekly-scores:";
+const localLeaderboardKeyPrefix = "chubbybird-monthly-scores:";
 const leaderboardLimit = 20;
 const BACKGROUND_VIDEO_RATE = isMobileDevice ? 0.45 : 0.72;
 const BGM_VOLUME = isMobileDevice ? 0.24 : 0.28;
@@ -115,7 +115,7 @@ const audit = {
 };
 const leaderboardState = {
   entries: [],
-  week: getIsoWeekId(),
+  month: getMonthId(),
   latestScore: 0,
   online: false,
   loading: false,
@@ -257,13 +257,8 @@ function setStoredValue(key, value) {
   }
 }
 
-function getIsoWeekId(date = new Date()) {
-  const current = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = current.getUTCDay() || 7;
-  current.setUTCDate(current.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(current.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((current - yearStart) / 86400000 + 1) / 7);
-  return `${current.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+function getMonthId(date = new Date()) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 function getPlayerId() {
@@ -295,7 +290,7 @@ function getLeaderboardApiUrl() {
 }
 
 function getLocalLeaderboardKey() {
-  return `${localLeaderboardKeyPrefix}${getIsoWeekId()}`;
+  return `${localLeaderboardKeyPrefix}${getMonthId()}`;
 }
 
 function loadLocalLeaderboard() {
@@ -327,14 +322,14 @@ function saveLocalLeaderboardScore(name, score) {
   return trimmed;
 }
 
-function renderLeaderboard(entries, week = leaderboardState.week) {
+function renderLeaderboard(entries, month = leaderboardState.month) {
   if (!leaderboardList) return;
   leaderboardList.replaceChildren();
   const visibleEntries = Array.isArray(entries) ? entries.slice(0, leaderboardLimit) : [];
   if (!visibleEntries.length) {
     const item = document.createElement("li");
     item.className = "empty-score";
-    item.textContent = "No scores yet this week";
+    item.textContent = "No scores yet this month";
     leaderboardList.appendChild(item);
     return;
   }
@@ -353,7 +348,7 @@ function renderLeaderboard(entries, week = leaderboardState.week) {
     item.append(rank, name, score);
     leaderboardList.appendChild(item);
   });
-  leaderboardState.week = week || leaderboardState.week;
+  leaderboardState.month = month || leaderboardState.month;
 }
 
 function setLeaderboardStatus(message) {
@@ -363,7 +358,7 @@ function setLeaderboardStatus(message) {
 function useLocalLeaderboardStatus(message = "Local scores on this device") {
   leaderboardState.online = false;
   leaderboardState.entries = loadLocalLeaderboard();
-  renderLeaderboard(leaderboardState.entries, getIsoWeekId());
+  renderLeaderboard(leaderboardState.entries, getMonthId());
   setLeaderboardStatus(message);
 }
 
@@ -376,7 +371,7 @@ async function loadLeaderboard(options = {}) {
   }
 
   leaderboardState.loading = true;
-  if (!options.silent) setLeaderboardStatus("Loading weekly scores...");
+  if (!options.silent) setLeaderboardStatus("Loading monthly scores...");
   try {
     const response = await fetch(url, {
       headers: { Accept: "application/json" },
@@ -387,8 +382,8 @@ async function loadLeaderboard(options = {}) {
     const entries = Array.isArray(data.entries) ? data.entries : [];
     leaderboardState.online = true;
     leaderboardState.entries = entries.slice(0, leaderboardLimit);
-    renderLeaderboard(leaderboardState.entries, data.week || getIsoWeekId());
-    setLeaderboardStatus(entries.length ? `Online week ${data.week || getIsoWeekId()}` : "Be first this week");
+    renderLeaderboard(leaderboardState.entries, data.month || data.week || getMonthId());
+    setLeaderboardStatus(entries.length ? `Online month ${data.month || data.week || getMonthId()}` : "Be first this month");
   } catch {
     useLocalLeaderboardStatus("Online board is waiting for deploy");
   } finally {
@@ -402,7 +397,7 @@ function showScoreSubmit(score) {
   leaderboardState.latestScore = cleanScore;
   scoreSubmitValue.textContent = cleanScore.toString();
   scoreSubmitForm.classList.toggle("hidden", cleanScore <= 0);
-  if (cleanScore > 0) setLeaderboardStatus("Save this run to the weekly board");
+  if (cleanScore > 0) setLeaderboardStatus("Save this run to the monthly board");
 }
 
 function hideScoreSubmit() {
@@ -421,7 +416,7 @@ async function submitLeaderboardScore(event) {
   try {
     if (!url) {
       leaderboardState.entries = saveLocalLeaderboardScore(name, score);
-      renderLeaderboard(leaderboardState.entries, getIsoWeekId());
+      renderLeaderboard(leaderboardState.entries, getMonthId());
       setLeaderboardStatus("Saved on this device");
       return;
     }
@@ -442,11 +437,11 @@ async function submitLeaderboardScore(event) {
     const data = await response.json();
     leaderboardState.online = true;
     leaderboardState.entries = Array.isArray(data.entries) ? data.entries.slice(0, leaderboardLimit) : [];
-    renderLeaderboard(leaderboardState.entries, data.week || getIsoWeekId());
-    setLeaderboardStatus(data.accepted ? "Score saved online" : "Your weekly best is already higher");
+    renderLeaderboard(leaderboardState.entries, data.month || data.week || getMonthId());
+    setLeaderboardStatus(data.accepted ? "Score saved online" : "Your monthly best is already higher");
   } catch {
     leaderboardState.entries = saveLocalLeaderboardScore(name, score);
-    renderLeaderboard(leaderboardState.entries, getIsoWeekId());
+    renderLeaderboard(leaderboardState.entries, getMonthId());
     setLeaderboardStatus("Saved locally; online board is waiting");
   } finally {
     if (scoreSubmitButton) scoreSubmitButton.disabled = false;
