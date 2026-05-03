@@ -36,21 +36,21 @@ const MAX_DASH_EFFECTS = isAndroidDevice ? 10 : isMobileDevice ? 14 : 72;
 const PHYSICS_STEP = 1 / 60;
 const MAX_FRAME_DELTA = isMobileDevice ? 0.036 : 0.04;
 const TRAIL_CHANCE = isAndroidDevice ? 0.03 : isMobileDevice ? 0.05 : 0.32;
-const BASE_SPEED = 360;
+const BASE_SPEED = 320;
 const PACE_CYCLE_SECONDS = 8;
-const HITBOX_RADIUS = 18;
+const HITBOX_RADIUS = 15;
 const MOBILE_ACTION_FRAME_HEIGHT = 144;
 const MOBILE_ACTION_SHEET_CELL_WIDTH = 154;
 const MOBILE_ACTION_SHEET_CELL_HEIGHT = 144;
-const GATE_MIN_GAP = 178;
-const GATE_START_GAP = 276;
-const GATE_SCORE_TIGHTEN = 1.75;
-const EARLY_WIDE_GAP_SCORE_LIMIT = 10;
-const EARLY_WIDE_GAP_BONUS = 58;
-const FLAP_LIFT = 355;
-const SUPER_JUMP_LIFT = 560;
-const GRAVITY_BASE = 1160;
-const GRAVITY_SPEED_SCALE = 0.22;
+const GATE_MIN_GAP = 210;
+const GATE_START_GAP = 330;
+const GATE_SCORE_TIGHTEN = 1.15;
+const EARLY_WIDE_GAP_SCORE_LIMIT = 14;
+const EARLY_WIDE_GAP_BONUS = 80;
+const FLAP_LIFT = 390;
+const SUPER_JUMP_LIFT = 630;
+const GRAVITY_BASE = 1040;
+const GRAVITY_SPEED_SCALE = 0.14;
 const bestKey = "rushwing-best";
 const playerNameKey = "chubbybird-player-name";
 const playerIdKey = "chubbybird-player-id";
@@ -571,7 +571,7 @@ function resetGame() {
   state.hudTimer = 0;
   state.dash = 0;
   state.dashBoost = 0;
-  state.spawnTimer = 0.85;
+  state.spawnTimer = 1.15;
   state.shake = 0;
   state.lastRightTap = 0;
   state.auditFlapCooldown = 0;
@@ -586,7 +586,7 @@ function resetGame() {
   state.bird.y = state.height * 0.42;
   state.bird.vy = -220;
   state.bird.angle = 0;
-  state.bird.invuln = 0.7;
+  state.bird.invuln = 1.1;
   overlay.classList.add("hidden");
   hideScoreSubmit();
   updateHud();
@@ -637,7 +637,7 @@ function flap(power = 1, horizontal = 0) {
   const bird = state.bird;
   bird.vy = Math.min(bird.vy, 0) - FLAP_LIFT * power;
   bird.y -= 6 * power;
-  bird.invuln = Math.max(bird.invuln, 0.12);
+  bird.invuln = Math.max(bird.invuln, 0.16);
   state.dashBoost = Math.max(state.dashBoost, horizontal * 24);
   triggerCharacterAnimation("flap", 380);
   burst(bird.x - 8, bird.y + 12, 9 + power * 5, "#f7e85f");
@@ -649,7 +649,7 @@ function superJump(strength = 1) {
   const lift = SUPER_JUMP_LIFT * (0.92 + Math.min(1, strength) * 0.28);
   bird.vy = Math.min(bird.vy, -120) - lift;
   bird.y -= 12;
-  bird.invuln = Math.max(bird.invuln, 0.2);
+  bird.invuln = Math.max(bird.invuln, 0.28);
   state.shake = Math.max(state.shake, 9);
   state.dashBoost = Math.max(state.dashBoost, 110);
   triggerCharacterAnimation("super", 520);
@@ -978,7 +978,7 @@ function update(dt) {
 
   if (state.spawnTimer <= 0) {
     spawnGate();
-    state.spawnTimer = Math.max(0.92, 1.45 - (getPaceMultiplier() - 1) * 0.24);
+    state.spawnTimer = Math.max(1.1, 1.7 - (getPaceMultiplier() - 1) * 0.2);
   }
 
   for (const gate of state.gates) {
