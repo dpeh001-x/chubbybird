@@ -49,21 +49,25 @@ const leaderboardLimit = 20;
 const BACKGROUND_VIDEO_RATE = isMobileDevice ? 0.45 : 0.72;
 const BGM_VOLUME = isMobileDevice ? 0.24 : 0.28;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+const USE_VIDEO_BACKGROUND = !isMobileDevice;
 const IDLE_RENDER_INTERVAL = isMobileDevice ? 1 / 24 : 1 / 45;
 const requestIdle =
   typeof window.requestIdleCallback === "function"
     ? (callback) => window.requestIdleCallback(callback, { timeout: 1200 })
     : (callback) => window.setTimeout(callback, 32);
 shell.classList.toggle("mobile-optimized", isMobileDevice);
+shell.classList.toggle("mobile-generated-background", !USE_VIDEO_BACKGROUND);
 const backgroundVideo = document.createElement("video");
-backgroundVideo.src = "assets/animated-background.mp4?v=retro-bg-1";
+if (USE_VIDEO_BACKGROUND) {
+  backgroundVideo.src = "assets/animated-background.mp4?v=retro-bg-1";
+}
 backgroundVideo.className = "background-video";
 backgroundVideo.muted = true;
 backgroundVideo.defaultMuted = true;
 backgroundVideo.loop = true;
-backgroundVideo.autoplay = !isMobileDevice;
+backgroundVideo.autoplay = USE_VIDEO_BACKGROUND;
 backgroundVideo.playsInline = true;
-backgroundVideo.preload = isMobileDevice ? "none" : "metadata";
+backgroundVideo.preload = USE_VIDEO_BACKGROUND ? "metadata" : "none";
 backgroundVideo.playbackRate = BACKGROUND_VIDEO_RATE;
 backgroundVideo.disablePictureInPicture = true;
 backgroundVideo.setAttribute("muted", "");
@@ -1087,6 +1091,10 @@ function drawGeneratedBackground() {
 }
 
 function startBackgroundVideo() {
+  if (!USE_VIDEO_BACKGROUND) {
+    markBackgroundVideoFallback();
+    return;
+  }
   if (state.performanceSaver && state.running) return;
   backgroundVideo.muted = true;
   backgroundVideo.defaultMuted = true;
