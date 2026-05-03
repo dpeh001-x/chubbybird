@@ -36,17 +36,17 @@ const MAX_DASH_EFFECTS = isAndroidDevice ? 10 : isMobileDevice ? 14 : 72;
 const PHYSICS_STEP = 1 / 60;
 const MAX_FRAME_DELTA = isMobileDevice ? 0.036 : 0.04;
 const TRAIL_CHANCE = isAndroidDevice ? 0.03 : isMobileDevice ? 0.05 : 0.32;
-const BASE_SPEED = 430;
+const BASE_SPEED = 360;
 const PACE_CYCLE_SECONDS = 8;
 const HITBOX_RADIUS = 18;
 const MOBILE_ACTION_FRAME_HEIGHT = 144;
 const MOBILE_ACTION_SHEET_CELL_WIDTH = 154;
 const MOBILE_ACTION_SHEET_CELL_HEIGHT = 144;
-const GATE_MIN_GAP = 152;
-const GATE_START_GAP = 236;
-const GATE_SCORE_TIGHTEN = 2.25;
+const GATE_MIN_GAP = 178;
+const GATE_START_GAP = 276;
+const GATE_SCORE_TIGHTEN = 1.75;
 const EARLY_WIDE_GAP_SCORE_LIMIT = 10;
-const EARLY_WIDE_GAP_BONUS = 46;
+const EARLY_WIDE_GAP_BONUS = 58;
 const FLAP_LIFT = 355;
 const SUPER_JUMP_LIFT = 560;
 const GRAVITY_BASE = 1160;
@@ -978,7 +978,7 @@ function update(dt) {
 
   if (state.spawnTimer <= 0) {
     spawnGate();
-    state.spawnTimer = Math.max(0.78, 1.3 - (getPaceMultiplier() - 1) * 0.28);
+    state.spawnTimer = Math.max(0.92, 1.45 - (getPaceMultiplier() - 1) * 0.24);
   }
 
   for (const gate of state.gates) {
