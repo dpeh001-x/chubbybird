@@ -23,15 +23,17 @@ const isMobileDevice =
   Boolean(coarsePointerQuery && coarsePointerQuery.matches) ||
   /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const DPR_LIMIT = isMobileDevice ? 1 : 1.5;
-const MAX_PARTICLES = isMobileDevice ? 22 : 80;
-const MAX_DASH_EFFECTS = isMobileDevice ? 20 : 72;
+const MAX_PARTICLES = isMobileDevice ? 18 : 80;
+const MAX_DASH_EFFECTS = isMobileDevice ? 14 : 72;
 const PHYSICS_STEP = 1 / 60;
-const MAX_FRAME_DELTA = isMobileDevice ? 0.045 : 0.04;
-const TRAIL_CHANCE = isMobileDevice ? 0.08 : 0.32;
+const MAX_FRAME_DELTA = isMobileDevice ? 0.036 : 0.04;
+const TRAIL_CHANCE = isMobileDevice ? 0.05 : 0.32;
 const BASE_SPEED = 430;
 const PACE_CYCLE_SECONDS = 8;
 const HITBOX_RADIUS = 18;
 const MOBILE_ACTION_FRAME_HEIGHT = 144;
+const MOBILE_ACTION_SHEET_CELL_WIDTH = 154;
+const MOBILE_ACTION_SHEET_CELL_HEIGHT = 144;
 const GATE_MIN_GAP = 152;
 const GATE_START_GAP = 236;
 const GATE_SCORE_TIGHTEN = 2.25;
@@ -86,7 +88,7 @@ let backgroundFallbackTimer = null;
 const bgmAudio = document.createElement("audio");
 bgmAudio.src = "assets/main-bgm.mpeg?v=bgm-1";
 bgmAudio.loop = true;
-bgmAudio.preload = "metadata";
+bgmAudio.preload = isMobileDevice ? "none" : "metadata";
 bgmAudio.volume = BGM_VOLUME;
 bgmAudio.setAttribute("playsinline", "");
 const audio = {
@@ -126,17 +128,26 @@ if (!isMobileDevice) {
 }
 const characterStillImage = new Image();
 characterStillImage.decoding = "async";
-characterStillImage.src = "assets/chubby-bird.png?v=hd-character-1";
-const characterActionFrames = Array.from({ length: 16 }, (_, index) => {
-  const image = new Image();
-  image.decoding = "async";
-  image.src = `assets/chubby-bird-action/frame_${String(index).padStart(3, "0")}.png?v=action-sprite-1`;
-  image.addEventListener("load", queueActionFrameWarmup, { once: true });
-  if (typeof image.decode === "function") {
-    image.decode().then(queueActionFrameWarmup).catch(() => {});
-  }
-  return image;
-});
+if (!isMobileDevice) {
+  characterStillImage.src = "assets/chubby-bird.png?v=hd-character-1";
+}
+const characterMobileActionSheet = new Image();
+characterMobileActionSheet.decoding = "async";
+if (isMobileDevice) {
+  characterMobileActionSheet.src = "assets/chubby-bird-action-mobile.png?v=mobile-action-sheet-1";
+}
+const characterActionFrames = isMobileDevice
+  ? []
+  : Array.from({ length: 16 }, (_, index) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = `assets/chubby-bird-action/frame_${String(index).padStart(3, "0")}.png?v=action-sprite-1`;
+      image.addEventListener("load", queueActionFrameWarmup, { once: true });
+      if (typeof image.decode === "function") {
+        image.decode().then(queueActionFrameWarmup).catch(() => {});
+      }
+      return image;
+    });
 const characterAnimations = {
   idle: [9, 10, 11, 10, 8, 10],
   flap: [2, 3, 4, 5, 6, 7, 8],
@@ -1448,14 +1459,23 @@ function drawGapEdgeSpark(gate, glow) {
   ctx.fill();
 }
 
-function getCharacterActionFrame(now = performance.now()) {
+function getCharacterFrameState(now = performance.now()) {
   const activeName = state.bird.animUntil > now ? state.bird.animName : "idle";
   const frames = characterAnimations[activeName] || characterAnimations.idle;
   const frameMs = activeName === "idle" ? 170 : 58;
   const elapsed = activeName === "idle" ? now : now - state.bird.animStartedAt;
   const rawIndex = Math.floor(elapsed / frameMs);
   const frameIndex = activeName === "idle" ? rawIndex % frames.length : Math.min(frames.length - 1, rawIndex);
-  const image = characterActionFrames[frames[frameIndex]];
+  return {
+    activeName,
+    frameIndex: frames[frameIndex],
+  };
+}
+
+function getCharacterActionFrame(now = performance.now()) {
+  if (!characterActionFrames.length) return null;
+  const { frameIndex } = getCharacterFrameState(now);
+  const image = characterActionFrames[frameIndex];
   return isImageReady(image) ? getOptimizedActionFrame(image) : null;
 }
 
@@ -1464,6 +1484,37 @@ function drawBird(now = performance.now()) {
   ctx.save();
   ctx.translate(b.x + state.dash * 14, b.y);
   ctx.rotate(b.angle);
+
+  if (isMobileDevice && isImageReady(characterMobileActionSheet)) {
+    const { activeName, frameIndex } = getCharacterFrameState(now);
+    const ratio = MOBILE_ACTION_SHEET_CELL_WIDTH / MOBILE_ACTION_SHEET_CELL_HEIGHT;
+    const flap = Math.sin(b.wing * 1.38);
+    const drawH = 118 + flap * 2 + state.dash * 5 + (activeName === "super" ? 6 : 0);
+    const drawW = drawH * ratio;
+    const wingBob = flap * 1.4;
+    const flash = b.invuln > 0 && Math.floor(now / 70) % 2;
+    const stretchX = 1 + state.dash * 0.08 + (activeName === "dash" ? 0.04 : 0);
+    const stretchY = 1 - state.dash * 0.025 + (activeName === "super" ? 0.03 : 0);
+
+    ctx.globalAlpha = flash ? 0.82 : 1;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "medium";
+    ctx.scale(stretchX, stretchY);
+    ctx.drawImage(
+      characterMobileActionSheet,
+      frameIndex * MOBILE_ACTION_SHEET_CELL_WIDTH,
+      0,
+      MOBILE_ACTION_SHEET_CELL_WIDTH,
+      MOBILE_ACTION_SHEET_CELL_HEIGHT,
+      -drawW * 0.52,
+      -drawH * 0.58 + wingBob,
+      drawW,
+      drawH
+    );
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    return;
+  }
 
   const actionFrame = getCharacterActionFrame(now);
   if (actionFrame) {
