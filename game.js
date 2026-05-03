@@ -99,6 +99,7 @@ bgmAudio.loop = true;
 bgmAudio.preload = isMobileDevice ? "none" : "metadata";
 bgmAudio.volume = BGM_VOLUME;
 bgmAudio.setAttribute("playsinline", "");
+let resumeBgmAfterVisibility = false;
 const audio = {
   ctx: null,
   master: null,
@@ -832,7 +833,6 @@ function crash() {
   if (state.bird.invuln > 0 || state.crashed) return;
   state.crashed = true;
   state.running = false;
-  pauseBgm();
   shell.classList.remove("game-active");
   state.needsDraw = true;
   state.shake = 20;
@@ -2403,11 +2403,13 @@ function handleVisibilityChange() {
   state.lastTime = performance.now();
   state.needsDraw = true;
   if (document.hidden) {
+    resumeBgmAfterVisibility = !bgmAudio.paused;
     backgroundVideo.pause();
     pauseBgm();
   } else {
     startBackgroundVideo();
-    if (state.running && !state.crashed) startBgm();
+    if (resumeBgmAfterVisibility || (state.running && !state.crashed)) startBgm();
+    resumeBgmAfterVisibility = false;
   }
 }
 
